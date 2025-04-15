@@ -46,6 +46,30 @@ app.get('/', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../client/src/index.html'));
 });
 
+// Payment success and cancel routes for redirects from payment providers
+app.get('/payment/success', (req: Request, res: Response) => {
+  // Get the order ID or payment ID from the query parameters
+  // PayPal typically returns token and PayerID parameters
+  const token = req.query.token || '';
+  const payerId = req.query.PayerID || '';
+  const orderId = req.query.orderId || '';
+  
+  console.log('Payment success redirect received:', { token, payerId, orderId });
+  
+  // Redirect back to the main page with success indicator
+  res.redirect(`/?status=success&token=${token}&PayerID=${payerId}`);
+});
+
+app.get('/payment/cancel', (req: Request, res: Response) => {
+  // PayPal typically returns token parameter
+  const token = req.query.token || '';
+  
+  console.log('Payment cancelled redirect received:', { token });
+  
+  // Redirect back to the main page with cancelled status
+  res.redirect(`/?status=cancelled&token=${token}`);
+});
+
 // API Routes
 app.use('/api/payments', paymentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);

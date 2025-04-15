@@ -55,8 +55,7 @@ export class PaymentProviderFactory {
             currency: paymentData.currency,
             description: paymentData.description,
             returnUrl: paymentData.returnUrl,
-            cancelUrl: paymentData.cancelUrl,
-            cardDetails: paymentData.cardDetails
+            cancelUrl: paymentData.cancelUrl
           });
           return {
             success: true,

@@ -216,6 +216,11 @@ The demo includes three main functionalities:
 1. Use PayPal sandbox credentials in your `.env` file
 2. Create test accounts in the PayPal Developer Dashboard
 3. Use sandbox accounts for testing payments
+4. For test card payments, use these card details:
+   - Card number: `371449635398431`
+   - Expiry: Any future date
+   - CVC: Any 4 digits
+   - ZIP: Any 5 digits
 
 ## Project Structure
 

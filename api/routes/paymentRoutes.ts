@@ -31,7 +31,7 @@ router.get('/stripe-key', (req: Request, res: Response) => {
  */
 router.post('/create', async (req: Request, res: Response) => {
   try {
-    const { amount, currency, description, provider = PaymentProvider.STRIPE, cardDetails } = req.body;
+    const { amount, currency, description, provider = PaymentProvider.STRIPE } = req.body;
 
     if (!amount || !currency) {
       return res.status(400).json({
@@ -52,14 +52,8 @@ router.post('/create', async (req: Request, res: Response) => {
       currency,
       description,
       returnUrl: 'http://localhost:3000/payment/success',
-      cancelUrl: 'http://localhost:3000/payment/cancel',
-      cardDetails // Pass through card details if provided
+      cancelUrl: 'http://localhost:3000/payment/cancel'
     };
-
-    // Log if card details were provided for PayPal
-    if (provider === PaymentProvider.PAYPAL && cardDetails) {
-      console.log('Card details provided for PayPal payment:', cardDetails);
-    }
 
     const result = await PaymentProviderFactory.processPayment(provider, paymentData);
 

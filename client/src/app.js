@@ -9,6 +9,46 @@ document.addEventListener('DOMContentLoaded', () => {
   const responseContainer = document.getElementById('response-container');
   const responseData = document.getElementById('response-data');
 
+  // Check for redirect status from payment providers
+  function checkPaymentStatus() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    const token = urlParams.get('token');
+    const payerId = urlParams.get('PayerID');
+    
+    if (status === 'success') {
+      // If we have PayPal parameters, display them
+      const paypalData = token ? { token, payerId } : {};
+      
+      displayResponse({
+        success: true,
+        message: 'Payment completed successfully!',
+        data: paypalData
+      });
+      
+      // Optional: Capture the PayPal payment using the token and PayerID
+      if (token && payerId) {
+        // You could make an API call to your server to capture the payment
+        // Example:
+        // fetch(`${API_BASE_URL}/payments/capture-paypal`, {
+        //   method: 'POST',
+        //   headers: { 'Content-Type': 'application/json' },
+        //   body: JSON.stringify({ token, payerId })
+        // });
+      }
+    } else if (status === 'cancelled') {
+      displayResponse({
+        success: false,
+        message: 'Payment was cancelled.'
+      });
+    }
+    
+    // Clean up the URL
+    if (status) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+  
   // Initialize Stripe client
   let stripe;
   let card;
@@ -46,6 +86,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Scroll to response
     responseContainer.scrollIntoView({ behavior: 'smooth' });
   };
+  
+  // Now it's safe to call checkPaymentStatus
+  checkPaymentStatus();
 
   // Setup Stripe card element
   const setupStripeElement = () => {
@@ -116,18 +159,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const cardContainer = document.getElementById('card-element');
       const cardErrors = document.getElementById('card-errors');
       
-      // Always show card element for both Stripe and PayPal
-      if (cardContainer) {
+      // Only show card element for Stripe, hide for PayPal
+      if (provider === 'stripe' && cardContainer) {
         cardLabel.style.display = 'block';
         cardContainer.style.display = 'block';
         cardErrors.style.display = 'block';
-        
-        // Update the label based on the provider
-        if (provider === 'stripe') {
-          cardLabel.textContent = 'Credit or debit card (Stripe)';
-        } else if (provider === 'paypal') {
-          cardLabel.textContent = 'Credit or debit card (PayPal)';
-        }
+        cardLabel.textContent = 'Credit or debit card (Stripe)';
+      } else if (cardContainer) {
+        cardLabel.style.display = 'none';
+        cardContainer.style.display = 'none';
+        cardErrors.style.display = 'none';
       }
     });
   });
@@ -211,17 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         // For PayPal or other providers
         
-        // If we have a card element, collect the card details
-        let cardDetails = null;
-        if (card) {
-          // Get card info from Stripe Elements to send to PayPal
-          // Note: In a real implementation, you would use PayPal's own SDK for card processing
-          // This is just for demonstration purposes
-          cardDetails = {
-            hasCardElement: true
-          };
-        }
-        
+        // PayPal uses its own UI for payment collection
         const response = await fetch(`${API_BASE_URL}/payments/create`, {
           method: 'POST',
           headers: {
@@ -231,8 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
             amount,
             currency,
             description,
-            provider,
-            cardDetails
+            provider
           }),
         });
         

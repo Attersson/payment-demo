@@ -24,10 +24,6 @@ export interface PaymentOptions {
   invoiceId?: string;
   returnUrl: string;
   cancelUrl: string;
-  cardDetails?: {
-    hasCardElement?: boolean;
-    // In a real implementation, you would handle actual card data here
-  };
 }
 
 export interface SubscriptionOptions {
@@ -52,7 +48,7 @@ export class PayPalService {
       const request = new checkoutNodeJssdk.orders.OrdersCreateRequest();
       request.prefer("return=representation");
       
-      const requestBody: any = {
+      const requestBody = {
         intent: 'CAPTURE',
         purchase_units: [{
           amount: {
@@ -67,14 +63,6 @@ export class PayPalService {
           cancel_url: options.cancelUrl,
         }
       };
-      
-      // If card details were provided, we would handle them here
-      // This is where you would integrate with PayPal's direct card processing
-      if (options.cardDetails && options.cardDetails.hasCardElement) {
-        console.log('Processing with card payment for PayPal');
-        // In a real implementation, you would use PayPal's SDK to handle direct card payments
-        // For this demo, we'll continue with the standard PayPal flow
-      }
       
       request.requestBody(requestBody);
 
