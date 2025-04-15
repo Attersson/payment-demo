@@ -210,6 +210,7 @@ The demo includes three main functionalities:
    ```
    npm run webhook:listen
    ```
+   Remember to run this command so that there's 1 terminal active with it, before `npm run dev` while testing in dev mode. This doesn't mean that each time you run the dev mode it you must also execute the command -- you can just leave 1 webhook terminal open in the background. Only when you run the webhook terminal for the first time ever you will need to copy the webhook token to the `.env` file.
 
 ### Testing with PayPal
 
