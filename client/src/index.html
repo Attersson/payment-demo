@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Processing Demo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .payment-card {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      border-radius: 8px;
+    }
+    .nav-pills .nav-link.active {
+      background-color: #6c757d;
+    }
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    .btn-payment {
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container mt-5">
+    <h1 class="text-center mb-4">Payment Processing Demo</h1>
+    
+    <div class="payment-card">
+      <ul class="nav nav-pills mb-4" id="paymentTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="one-time-tab" data-bs-toggle="pill" data-bs-target="#one-time-payment" type="button" role="tab" aria-controls="one-time-payment" aria-selected="true">One-time Payment</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="subscription-tab" data-bs-toggle="pill" data-bs-target="#subscription" type="button" role="tab" aria-controls="subscription" aria-selected="false">Subscription</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="refund-tab" data-bs-toggle="pill" data-bs-target="#refund" type="button" role="tab" aria-controls="refund" aria-selected="false">Refund</button>
+        </li>
+      </ul>
+      
+      <div class="tab-content" id="paymentTabsContent">
+        <!-- One-time Payment Tab -->
+        <div class="tab-pane fade show active" id="one-time-payment" role="tabpanel" aria-labelledby="one-time-tab">
+          <form id="payment-form">
+            <div class="form-group">
+              <label for="payment-amount">Amount</label>
+              <div class="input-group">
+                <span class="input-group-text">$</span>
+                <input type="number" class="form-control" id="payment-amount" min="1" step="0.01" value="19.99" required>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="payment-currency">Currency</label>
+              <select class="form-select" id="payment-currency" required>
+                <option value="USD" selected>USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="payment-description">Description</label>
+              <input type="text" class="form-control" id="payment-description" value="Test payment">
+            </div>
+            
+            <div class="form-group">
+              <label>Payment Provider</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="payment-provider" id="provider-stripe" value="stripe" checked>
+                <label class="form-check-label" for="provider-stripe">
+                  Stripe
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="payment-provider" id="provider-paypal" value="paypal">
+                <label class="form-check-label" for="provider-paypal">
+                  PayPal
+                </label>
+              </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-payment mt-3">Process Payment</button>
+          </form>
+        </div>
+        
+        <!-- Subscription Tab -->
+        <div class="tab-pane fade" id="subscription" role="tabpanel" aria-labelledby="subscription-tab">
+          <form id="subscription-form">
+            <div class="form-group">
+              <label for="subscription-plan">Subscription Plan</label>
+              <select class="form-select" id="subscription-plan" required>
+                <option value="" disabled selected>Select a plan</option>
+                <option value="price_basic">Basic ($9.99/month)</option>
+                <option value="price_premium">Premium ($19.99/month)</option>
+                <option value="price_enterprise">Enterprise ($49.99/month)</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="customer-email">Email</label>
+              <input type="email" class="form-control" id="customer-email" placeholder="your@email.com" required>
+            </div>
+            
+            <div class="form-group">
+              <label>Payment Provider</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="subscription-provider" id="sub-provider-stripe" value="stripe" checked>
+                <label class="form-check-label" for="sub-provider-stripe">
+                  Stripe
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="subscription-provider" id="sub-provider-paypal" value="paypal">
+                <label class="form-check-label" for="sub-provider-paypal">
+                  PayPal
+                </label>
+              </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-payment mt-3">Subscribe</button>
+          </form>
+        </div>
+        
+        <!-- Refund Tab -->
+        <div class="tab-pane fade" id="refund" role="tabpanel" aria-labelledby="refund-tab">
+          <form id="refund-form">
+            <div class="form-group">
+              <label for="transaction-id">Transaction ID</label>
+              <input type="text" class="form-control" id="transaction-id" placeholder="pi_1234567890" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="refund-amount">Amount (leave empty for full refund)</label>
+              <div class="input-group">
+                <span class="input-group-text">$</span>
+                <input type="number" class="form-control" id="refund-amount" min="1" step="0.01">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="refund-reason">Reason</label>
+              <select class="form-select" id="refund-reason">
+                <option value="requested_by_customer">Requested by customer</option>
+                <option value="duplicate">Duplicate charge</option>
+                <option value="fraudulent">Fraudulent</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label>Payment Provider</label>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="refund-provider" id="refund-provider-stripe" value="stripe" checked>
+                <label class="form-check-label" for="refund-provider-stripe">
+                  Stripe
+                </label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="refund-provider" id="refund-provider-paypal" value="paypal">
+                <label class="form-check-label" for="refund-provider-paypal">
+                  PayPal
+                </label>
+              </div>
+            </div>
+            
+            <button type="submit" class="btn btn-danger btn-payment mt-3">Process Refund</button>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Response Display -->
+      <div class="mt-4 p-3 bg-light rounded d-none" id="response-container">
+        <h5>Response:</h5>
+        <pre id="response-data" class="mt-2"></pre>
+      </div>
+    </div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://js.stripe.com/v3/"></script>
+  <script src="app.js"></script>
+</body>
+</html> 

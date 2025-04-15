@@ -1,0 +1,59 @@
+{
+  "name": "payment-demo",
+  "version": "1.0.0",
+  "description": "A comprehensive learning project for implementing secure payment processing with multiple providers, subscription management, and refund capabilities.",
+  "main": "dist/src/server.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "start": "node dist/src/server.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "db:setup": "ts-node scripts/setupDatabase.ts",
+    "db:migrate": "ts-node scripts/runMigrations.ts",
+    "webhook:listen": "stripe listen --forward-to localhost:3000/api/webhooks/stripe"
+  },
+  "keywords": [
+    "payment",
+    "stripe",
+    "paypal",
+    "subscription",
+    "refund"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@paypal/checkout-server-sdk": "^1.0.3",
+    "bcrypt": "^5.1.1",
+    "bull": "^4.12.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "pg": "^8.11.3",
+    "redis": "^4.6.13",
+    "stripe": "^14.22.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.12",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^20.14.1",
+    "@types/pg": "^8.11.3",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.2"
+  }
+}
