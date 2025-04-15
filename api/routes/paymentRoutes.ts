@@ -1,8 +1,29 @@
 import express, { Request, Response } from 'express';
 import { PaymentProvider, PaymentProviderFactory } from '../../services/paymentProviderFactory';
 import stripeService from '../../services/stripe/stripeService';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
+
+/**
+ * Get Stripe publishable key
+ * GET /api/payments/stripe-key
+ */
+router.get('/stripe-key', (req: Request, res: Response) => {
+  console.log('Env variables:', process.env);
+  console.log('Stripe publishable key:', process.env.STRIPE_PUBLISHABLE_KEY);
+  
+  // Try loading from env or use the hardcoded key as fallback
+  const stripePublishableKey = process.env.STRIPE_PUBLISHABLE_KEY || 
+    'pk_test_51REE5yEAYAtQV9XuPVy00dGmBiJKe3UJNLOJzHVGTxIhILQH624oHuhl6OXuEt1N7kMucLwhuJCDCd4hdFQeaIr200fIr4YE8U';
+  
+  return res.status(200).json({
+    success: true,
+    key: stripePublishableKey
+  });
+});
 
 /**
  * Create a payment intent
@@ -10,7 +31,7 @@ const router = express.Router();
  */
 router.post('/create', async (req: Request, res: Response) => {
   try {
-    const { amount, currency, description, provider = PaymentProvider.STRIPE } = req.body;
+    const { amount, currency, description, provider = PaymentProvider.STRIPE, cardDetails } = req.body;
 
     if (!amount || !currency) {
       return res.status(400).json({
@@ -19,13 +40,26 @@ router.post('/create', async (req: Request, res: Response) => {
       });
     }
 
+    // Convert amount to cents for Stripe (smallest currency unit)
+    // For example, $19.99 should be 1999 cents
+    const amountValue = parseFloat(amount);
+    const amountInSmallestUnit = provider === PaymentProvider.STRIPE 
+      ? Math.round(amountValue * 100) // Convert dollars to cents for Stripe
+      : amountValue;
+
     const paymentData = {
-      amount: parseInt(amount),
+      amount: amountInSmallestUnit,
       currency,
       description,
       returnUrl: 'http://localhost:3000/payment/success',
-      cancelUrl: 'http://localhost:3000/payment/cancel'
+      cancelUrl: 'http://localhost:3000/payment/cancel',
+      cardDetails // Pass through card details if provided
     };
+
+    // Log if card details were provided for PayPal
+    if (provider === PaymentProvider.PAYPAL && cardDetails) {
+      console.log('Card details provided for PayPal payment:', cardDetails);
+    }
 
     const result = await PaymentProviderFactory.processPayment(provider, paymentData);
 
@@ -108,8 +142,14 @@ router.post('/refund', async (req: Request, res: Response) => {
       });
     }
 
+    // Convert amount to cents for Stripe refunds if provided
+    const amountValue = amount ? parseFloat(amount) : undefined;
+    const amountInSmallestUnit = provider === PaymentProvider.STRIPE && amountValue
+      ? Math.round(amountValue * 100) // Convert dollars to cents for Stripe
+      : amountValue;
+
     const refundData = provider === PaymentProvider.STRIPE
-      ? { paymentIntentId: transactionId, amount: amount ? parseInt(amount) : undefined }
+      ? { paymentIntentId: transactionId, amount: amountInSmallestUnit }
       : { captureId: transactionId, amount: amount ? { currency_code: 'USD', value: amount.toString() } : undefined };
 
     const result = await PaymentProviderFactory.processRefund(provider, refundData);

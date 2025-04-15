@@ -10,8 +10,34 @@ document.addEventListener('DOMContentLoaded', () => {
   const responseData = document.getElementById('response-data');
 
   // Initialize Stripe client
-  const stripe = Stripe('pk_test_your_stripe_publishable_key');
-
+  let stripe;
+  let card;
+  let cardElement;
+  
+  // Initialize Stripe with the key from the server
+  fetch(`${API_BASE_URL}/payments/stripe-key`)
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        stripe = Stripe(data.key);
+        // Setup Stripe elements after getting the key
+        setupStripeElement();
+      } else {
+        console.error('Error fetching Stripe key:', data.message);
+        displayResponse({
+          error: true,
+          message: 'Failed to initialize payment system: ' + data.message
+        });
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching Stripe key:', error);
+      displayResponse({
+        error: true,
+        message: 'Failed to initialize payment system. Please try again later.'
+      });
+    });
+  
   // Helper function to display API responses
   const displayResponse = (data) => {
     responseContainer.classList.remove('d-none');
@@ -20,6 +46,91 @@ document.addEventListener('DOMContentLoaded', () => {
     // Scroll to response
     responseContainer.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Setup Stripe card element
+  const setupStripeElement = () => {
+    if (!stripe) {
+      console.error('Stripe not initialized yet');
+      return;
+    }
+    
+    if (!cardElement) {
+      // Create a container for the card element if it doesn't exist
+      const cardContainer = document.createElement('div');
+      cardContainer.id = 'card-element';
+      cardContainer.className = 'form-control mb-3';
+      
+      // Add a label
+      const cardLabel = document.createElement('label');
+      cardLabel.htmlFor = 'card-element';
+      cardLabel.textContent = 'Credit or debit card';
+      cardLabel.className = 'form-label mt-3';
+      
+      // Insert the elements after the description field
+      const descriptionField = document.getElementById('payment-description');
+      const formGroup = descriptionField.closest('.form-group');
+      formGroup.parentNode.insertBefore(cardLabel, formGroup.nextSibling);
+      formGroup.parentNode.insertBefore(cardContainer, cardLabel.nextSibling);
+      
+      // Add an element to display card errors
+      const cardErrors = document.createElement('div');
+      cardErrors.id = 'card-errors';
+      cardErrors.className = 'text-danger mb-3';
+      formGroup.parentNode.insertBefore(cardErrors, cardContainer.nextSibling);
+      
+      // Initialize Stripe Elements
+      const elements = stripe.elements();
+      
+      // Create the card Element
+      card = elements.create('card', {
+        style: {
+          base: {
+            fontSize: '16px',
+            color: '#32325d',
+          }
+        }
+      });
+      
+      // Mount the card Element to the card-element container
+      card.mount('#card-element');
+      
+      // Handle validation errors
+      card.addEventListener('change', (event) => {
+        const displayError = document.getElementById('card-errors');
+        if (event.error) {
+          displayError.textContent = event.error.message;
+        } else {
+          displayError.textContent = '';
+        }
+      });
+      
+      cardElement = card;
+    }
+  };
+
+  // Show or hide the Stripe card element based on provider selection
+  document.querySelectorAll('input[name="payment-provider"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const provider = e.target.value;
+      const cardLabel = document.querySelector('label[for="card-element"]');
+      const cardContainer = document.getElementById('card-element');
+      const cardErrors = document.getElementById('card-errors');
+      
+      // Always show card element for both Stripe and PayPal
+      if (cardContainer) {
+        cardLabel.style.display = 'block';
+        cardContainer.style.display = 'block';
+        cardErrors.style.display = 'block';
+        
+        // Update the label based on the provider
+        if (provider === 'stripe') {
+          cardLabel.textContent = 'Credit or debit card (Stripe)';
+        } else if (provider === 'paypal') {
+          cardLabel.textContent = 'Credit or debit card (PayPal)';
+        }
+      }
+    });
+  });
 
   // Process one-time payment
   paymentForm.addEventListener('submit', async (e) => {
@@ -37,30 +148,103 @@ document.addEventListener('DOMContentLoaded', () => {
       submitButton.disabled = true;
       submitButton.textContent = 'Processing...';
       
-      const response = await fetch(`${API_BASE_URL}/payments/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount,
-          currency,
-          description,
-          provider
-        }),
-      });
-      
-      const data = await response.json();
-      displayResponse(data);
-      
-      // Handle Stripe payment intent confirmation if needed
-      if (provider === 'stripe' && data.success && data.data.client_secret) {
-        const { error } = await stripe.confirmCardPayment(data.data.client_secret);
-        if (error) {
-          displayResponse({
-            error: true,
-            message: error.message
-          });
+      if (provider === 'stripe') {
+        // Check if Stripe is initialized
+        if (!stripe) {
+          throw new Error('Stripe is not initialized. Please try again later.');
+        }
+        
+        // Step 1: Create a PaymentIntent on the server
+        const response = await fetch(`${API_BASE_URL}/payments/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            amount,
+            currency,
+            description,
+            provider
+          }),
+        });
+        
+        const paymentData = await response.json();
+        displayResponse(paymentData);
+        
+        if (paymentData.data && paymentData.data.client_secret) {
+          // Step 2: Confirm the payment with the card element
+          document.getElementById('card-errors').textContent = 'Confirming payment...';
+          
+          const result = await stripe.confirmCardPayment(
+            paymentData.data.client_secret,
+            {
+              payment_method: {
+                card: card,
+                billing_details: {
+                  name: 'Test Customer', // In a real app, collect this from the user
+                }
+              }
+            }
+          );
+          
+          if (result.error) {
+            // Show error to customer
+            const errorMessage = result.error.message;
+            document.getElementById('card-errors').textContent = errorMessage;
+            displayResponse({
+              success: false,
+              message: errorMessage
+            });
+          } else {
+            // The payment has been processed!
+            if (result.paymentIntent.status === 'succeeded') {
+              // Show a success message to your customer
+              document.getElementById('card-errors').textContent = '';
+              displayResponse({
+                success: true,
+                message: 'Payment succeeded!',
+                data: result.paymentIntent
+              });
+            }
+          }
+        }
+      } else {
+        // For PayPal or other providers
+        
+        // If we have a card element, collect the card details
+        let cardDetails = null;
+        if (card) {
+          // Get card info from Stripe Elements to send to PayPal
+          // Note: In a real implementation, you would use PayPal's own SDK for card processing
+          // This is just for demonstration purposes
+          cardDetails = {
+            hasCardElement: true
+          };
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/payments/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            amount,
+            currency,
+            description,
+            provider,
+            cardDetails
+          }),
+        });
+        
+        const data = await response.json();
+        displayResponse(data);
+        
+        // If PayPal returns a redirect URL, redirect the user
+        if (data.success && data.data && data.data.links) {
+          const approvalLink = data.data.links.find(link => link.rel === 'approve');
+          if (approvalLink) {
+            window.location.href = approvalLink.href;
+          }
         }
       }
       
