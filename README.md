@@ -9,11 +9,12 @@ This project serves as a hands-on learning environment for building robust payme
 ## Features
 
 - Stripe and PayPal integration
-- Subscription management
+- Subscription management with UI components
 - Transaction processing
 - Refund handling
 - Secure payment flow
 - Comprehensive error handling
+- Webhook handling for payment events
 - Audit logging
 - Admin dashboard
 - User payment portal
@@ -54,11 +55,15 @@ This project serves as a hands-on learning environment for building robust payme
    ```
    npm run db:setup
    ```
-5. Start the development server:
+5. Run database migrations:
+   ```
+   npm run db:migrate:all
+   ```
+6. Start the development server:
    ```
    npm run dev
    ```
-6. Access the demo UI at `http://localhost:3000`
+7. Access the demo UI at `http://localhost:3000`
 
 ### Detailed Setup Instructions
 
@@ -90,6 +95,7 @@ JWT_EXPIRES_IN=1d
 # Payment Gateways
 # Stripe
 STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key
 STRIPE_WEBHOOK_SECRET=whsec_your_stripe_webhook_secret
 
 # PayPal
@@ -147,13 +153,25 @@ PAYPAL_ENVIRONMENT=sandbox
   sudo systemctl enable redis-server
   ```
 
+#### Database Migration System
+
+The project uses a migration system to manage database schema changes:
+
+- Run all migrations: `npm run db:migrate:all`
+- Run only the latest migration: `npm run db:migrate:latest`
+- Run specific migrations:
+  - `npm run db:migrate:webhook` - Set up webhook event tables
+  - `npm run db:migrate:subscription` - Set up subscription tables
+  - `npm run db:migrate:plans` - Set up plan management tables
+
 #### Payment Provider Accounts
 
 ##### Stripe
 1. Sign up at https://dashboard.stripe.com/register
 2. Go to Developers → API keys
 3. Copy your test Secret key to STRIPE_SECRET_KEY
-4. For webhooks:
+4. Copy your test Publishable key to STRIPE_PUBLISHABLE_KEY
+5. For webhooks:
    - Install Stripe CLI: https://stripe.com/docs/stripe-cli
    - Run `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
    - Copy the webhook signing secret to STRIPE_WEBHOOK_SECRET
@@ -163,6 +181,7 @@ PAYPAL_ENVIRONMENT=sandbox
 2. Create a new app in the Developer Dashboard
 3. Switch to Sandbox mode
 4. Copy Client ID and Secret to your .env file
+5. For webhooks, configure your sandbox application to send webhook events to `http://your-domain/api/webhooks/paypal`
 
 #### Troubleshooting
 
@@ -189,8 +208,9 @@ The demo includes three main functionalities:
 
 2. **Subscription Management**
    - Create recurring subscription plans
-   - Manage customer subscriptions
+   - Manage customer subscriptions (create, update, pause, resume, cancel)
    - Handle upgrades, downgrades, and cancellations
+   - Modern UI with detailed subscription information
 
 3. **Refund Processing**
    - Process full or partial refunds
@@ -228,32 +248,66 @@ The demo includes three main functionalities:
 ```
 payment-demo/
 ├── api/                # Backend API endpoints
+│   └── routes/         # API route handlers
 ├── config/             # Configuration files
 ├── db/                 # Database models and migrations
+│   └── migrations/     # SQL migration files
 ├── services/           # Business logic and payment providers
+│   ├── stripe/         # Stripe service implementation
+│   ├── paypal/         # PayPal service implementation
+│   └── webhookService.ts # Webhook handling for payment providers
 ├── middleware/         # Express middleware
 ├── utils/              # Utility functions
 ├── client/             # Frontend UI components
+│   └── src/
+│       ├── components/ # UI components including subscription management
+│       ├── app.js      # Main application code
+│       └── index.html  # Main HTML template
+├── models/             # Data models
+├── lib/                # Library utilities
 ├── workers/            # Background job processing
 ├── tests/              # Test suite
 └── scripts/            # Helper scripts
+    └── runMigration.ts # Database migration script
 ```
+
+## Webhooks and Event Processing
+
+The system implements a comprehensive webhook processing system for both Stripe and PayPal:
+
+- **Webhook Endpoints**:
+  - Stripe: `/api/webhooks/stripe`
+  - PayPal: `/api/webhooks/paypal`
+
+- **Event Types Handled**:
+  - Subscription lifecycle (created, updated, cancelled, paused, resumed)
+  - Payment events (succeeded, failed)
+  - Invoice events
+
+- **Event Processing Flow**:
+  1. Receive webhook event
+  2. Verify provider signature (for Stripe)
+  3. Log event to database
+  4. Process event based on type
+  5. Update subscription/payment status
+  6. Record event processing status
 
 ## Development Roadmap
 
 This project is structured around six key milestones:
 
-1. **Payment Gateway Setup**
+1. **Payment Gateway Setup** ✓
    - Configure Stripe and PayPal integrations
    - Set up webhooks and API endpoints
    - Implement error handling
 
-2. **Subscription System**
+2. **Subscription System** ✓
    - Create subscription plans
    - Handle recurring billing
    - Manage subscription lifecycle
+   - UI components for subscription management
 
-3. **Refund and Dispute Handling**
+3. **Refund and Dispute Handling** ✓
    - Process refunds through multiple providers
    - Handle disputes and chargebacks
    - Implement notification systems

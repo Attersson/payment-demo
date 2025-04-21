@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import path from 'path';
 import paymentRoutes from '../api/routes/paymentRoutes';
 import subscriptionRoutes from '../api/routes/subscriptionRoutes';
+import planRoutes from '../api/routes/planRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -73,6 +74,7 @@ app.get('/payment/cancel', (req: Request, res: Response) => {
 // API Routes
 app.use('/api/payments', paymentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/plans', planRoutes);
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

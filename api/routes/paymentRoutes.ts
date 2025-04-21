@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { PaymentProvider, PaymentProviderFactory } from '../../services/paymentProviderFactory';
 import stripeService from '../../services/stripe/stripeService';
 import dotenv from 'dotenv';
+import webhookService from '../../services/webhookService';
 
 dotenv.config();
 
@@ -83,39 +84,60 @@ router.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async
       return res.status(400).json({ success: false, message: 'Stripe signature missing' });
     }
 
-    const event = await stripeService.handleWebhookEvent(req.body, signature);
+    // Pass the event to our webhook service
+    const result = await webhookService.processStripeEvent(req.body, signature);
 
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        // Handle successful payment
-        console.log('Payment succeeded:', event.data.object);
-        break;
-      case 'payment_intent.payment_failed':
-        // Handle failed payment
-        console.log('Payment failed:', event.data.object);
-        break;
-      case 'customer.subscription.created':
-        // Handle subscription creation
-        console.log('Subscription created:', event.data.object);
-        break;
-      case 'customer.subscription.updated':
-        // Handle subscription update
-        console.log('Subscription updated:', event.data.object);
-        break;
-      case 'customer.subscription.deleted':
-        // Handle subscription cancellation
-        console.log('Subscription cancelled:', event.data.object);
-        break;
-      default:
-        // Handle other event types
-        console.log(`Unhandled event type: ${event.type}`);
+    if (result.processingStatus === 'failed') {
+      console.error('Stripe webhook processing failed:', result.error);
+      // We still return 200 to acknowledge receipt of the webhook
+      return res.status(200).json({ 
+        received: true,
+        processed: false,
+        error: result.error
+      });
     }
 
-    return res.status(200).json({ received: true });
+    return res.status(200).json({ received: true, processed: true });
   } catch (error) {
     console.error('Error handling webhook:', error);
     return res.status(400).json({
       success: false,
+      message: error instanceof Error ? error.message : 'Unknown webhook error'
+    });
+  }
+});
+
+/**
+ * Handle webhook events from PayPal
+ * POST /api/payments/webhooks/paypal
+ */
+router.post('/webhooks/paypal', express.json(), async (req: Request, res: Response) => {
+  try {
+    if (!req.body || !req.body.event_type) {
+      return res.status(400).json({ success: false, message: 'Invalid PayPal webhook payload' });
+    }
+
+    // Pass the event to our webhook service
+    const result = await webhookService.processPayPalEvent(req.body);
+
+    if (result.processingStatus === 'failed') {
+      console.error('PayPal webhook processing failed:', result.error);
+      // We still return 200 to acknowledge receipt of the webhook
+      // PayPal will retry if we return an error status
+      return res.status(200).json({ 
+        received: true,
+        processed: false,
+        error: result.error
+      });
+    }
+
+    return res.status(200).json({ received: true, processed: true });
+  } catch (error) {
+    console.error('Error handling PayPal webhook:', error);
+    // Even on error, return 200 to acknowledge receipt
+    return res.status(200).json({
+      received: true,
+      processed: false,
       message: error instanceof Error ? error.message : 'Unknown webhook error'
     });
   }

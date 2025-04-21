@@ -416,4 +416,28 @@ document.addEventListener('DOMContentLoaded', () => {
       submitButton.textContent = 'Process Refund';
     }
   });
+
+  // Initialize subscription management flow
+  import('./components/SubscriptionFlow.js')
+    .then(module => {
+      const SubscriptionFlow = module.default;
+      const subscriptionFlow = new SubscriptionFlow('subscription-flow-container', API_BASE_URL);
+      
+      // Set a dummy customer ID for testing
+      subscriptionFlow.setCustomerId('cust_test_123');
+      
+      // Initialize the flow
+      subscriptionFlow.initialize();
+    })
+    .catch(error => {
+      console.error('Error loading subscription flow:', error);
+      const container = document.getElementById('subscription-flow-container');
+      if (container) {
+        container.innerHTML = `
+          <div class="alert alert-danger">
+            Failed to load subscription management. Please try again later.
+          </div>
+        `;
+      }
+    });
 }); 

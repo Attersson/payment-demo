@@ -14,7 +14,11 @@
     "lint": "eslint . --ext .ts",
     "db:setup": "ts-node scripts/setupDatabase.ts",
     "db:migrate": "ts-node scripts/runMigration.ts",
-    "db:migrate:subscription": "ts-node scripts/runMigration.ts ../db/migrations/002_enhance_subscriptions.sql",
+    "db:migrate:all": "ts-node scripts/runMigration.ts all",
+    "db:migrate:latest": "ts-node scripts/runMigration.ts latest",
+    "db:migrate:webhook": "ts-node scripts/runMigration.ts 004_webhook_events.sql",
+    "db:migrate:subscription": "ts-node scripts/runMigration.ts 002_enhance_subscriptions.sql",
+    "db:migrate:plans": "ts-node scripts/runMigration.ts 003_plan_management.sql",
     "webhook:listen": "stripe listen --forward-to localhost:3000/api/webhooks/stripe"
   },
   "keywords": [
