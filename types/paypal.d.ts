@@ -36,6 +36,36 @@ declare module '@paypal/checkout-server-sdk' {
       constructor(subscriptionId: string);
       requestBody(body: any): void;
     }
+
+    class SubscriptionsGetRequest {
+      constructor(subscriptionId: string);
+    }
+
+    class SubscriptionsUpdateRequest {
+      constructor(subscriptionId: string);
+      requestBody(body: any): void;
+    }
+
+    class SubscriptionsSuspendRequest {
+      constructor(subscriptionId: string);
+      requestBody(body: any): void;
+    }
+
+    class SubscriptionsActivateRequest {
+      constructor(subscriptionId: string);
+      requestBody(body: any): void;
+    }
+
+    class SubscriptionsCaptureRequest {
+      constructor(subscriptionId: string);
+      requestBody(body: any): void;
+    }
+
+    class SubscriptionsTransactionsRequest {
+      constructor(subscriptionId: string);
+      startTime: string;
+      endTime: string;
+    }
   }
   
   namespace payments {

@@ -31,6 +31,37 @@ export interface SubscriptionResult {
   data?: any;
 }
 
+// New interfaces for subscription operations
+export interface SubscriptionUpdateData {
+  subscriptionId: string;
+  planId?: string;
+  priceId?: string;
+  quantity?: number;
+  metadata?: Record<string, string>;
+  cancelAtPeriodEnd?: boolean;
+  items?: Array<{
+    id?: string;
+    price?: string;
+    deleted?: boolean;
+    quantity?: number;
+  }>;
+  trialEnd?: number | 'now';
+  prorationBehavior?: 'create_prorations' | 'none' | 'always_invoice';
+}
+
+export interface SubscriptionPauseData {
+  subscriptionId: string;
+  resumeAt?: Date;
+  reason?: string;
+}
+
+export interface UsageReportData {
+  subscriptionItemId: string;
+  quantity: number;
+  timestamp?: number | Date;
+  action?: 'increment' | 'set';
+}
+
 /**
  * Factory class to get the right payment provider
  */
@@ -130,7 +161,9 @@ export class PaymentProviderFactory {
           const subscription = await paypalService.createSubscription({
             planId: subscriptionData.planId,
             startTime: subscriptionData.startTime,
-            quantity: subscriptionData.quantity
+            quantity: subscriptionData.quantity,
+            trialPeriodDays: subscriptionData.trialPeriodDays,
+            applicationContext: subscriptionData.applicationContext
           });
           return {
             success: true,
@@ -154,13 +187,180 @@ export class PaymentProviderFactory {
   }
 
   /**
-   * Cancel a subscription with the specified provider
+   * Get subscription details
    */
-  static async cancelSubscription(provider: PaymentProvider, subscriptionId: string, reason?: string): Promise<SubscriptionResult> {
+  static async getSubscription(provider: PaymentProvider, subscriptionId: string): Promise<SubscriptionResult> {
     try {
       switch (provider) {
         case PaymentProvider.STRIPE: {
-          const subscription = await stripeService.cancelSubscription(subscriptionId);
+          const subscription = await stripeService.getSubscription(subscriptionId);
+          return {
+            success: true,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+            data: subscription
+          };
+        }
+        case PaymentProvider.PAYPAL: {
+          const subscription = await paypalService.getSubscription(subscriptionId);
+          return {
+            success: true,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+            data: subscription
+          };
+        }
+        default:
+          throw new Error(`Payment provider ${provider} not supported`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        subscriptionId,
+        status: 'error',
+        error,
+        message: error instanceof Error ? error.message : 'Unknown subscription error'
+      };
+    }
+  }
+
+  /**
+   * Update a subscription
+   */
+  static async updateSubscription(provider: PaymentProvider, updateData: SubscriptionUpdateData): Promise<SubscriptionResult> {
+    try {
+      switch (provider) {
+        case PaymentProvider.STRIPE: {
+          const subscription = await stripeService.updateSubscription(updateData.subscriptionId, {
+            items: updateData.items,
+            metadata: updateData.metadata,
+            cancelAtPeriodEnd: updateData.cancelAtPeriodEnd,
+            prorationBehavior: updateData.prorationBehavior,
+            trialEnd: updateData.trialEnd
+          });
+          return {
+            success: true,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+            data: subscription
+          };
+        }
+        case PaymentProvider.PAYPAL: {
+          const subscription = await paypalService.updateSubscription(updateData.subscriptionId, {
+            planId: updateData.planId,
+            quantity: updateData.quantity
+          });
+          return {
+            success: true,
+            subscriptionId: updateData.subscriptionId,
+            status: 'updated',
+            data: subscription
+          };
+        }
+        default:
+          throw new Error(`Payment provider ${provider} not supported`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        subscriptionId: updateData.subscriptionId,
+        status: 'error',
+        error,
+        message: error instanceof Error ? error.message : 'Unknown subscription update error'
+      };
+    }
+  }
+
+  /**
+   * Pause a subscription
+   */
+  static async pauseSubscription(provider: PaymentProvider, pauseData: SubscriptionPauseData): Promise<SubscriptionResult> {
+    try {
+      switch (provider) {
+        case PaymentProvider.STRIPE: {
+          const subscription = await stripeService.pauseSubscription(
+            pauseData.subscriptionId, 
+            pauseData.resumeAt
+          );
+          return {
+            success: true,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+            data: subscription
+          };
+        }
+        case PaymentProvider.PAYPAL: {
+          const subscription = await paypalService.suspendSubscription(
+            pauseData.subscriptionId, 
+            pauseData.reason
+          );
+          return {
+            success: true,
+            subscriptionId: pauseData.subscriptionId,
+            status: 'suspended',
+            data: subscription
+          };
+        }
+        default:
+          throw new Error(`Payment provider ${provider} not supported`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        subscriptionId: pauseData.subscriptionId,
+        status: 'error',
+        error,
+        message: error instanceof Error ? error.message : 'Unknown subscription pause error'
+      };
+    }
+  }
+
+  /**
+   * Resume a paused subscription
+   */
+  static async resumeSubscription(provider: PaymentProvider, subscriptionId: string, reason?: string): Promise<SubscriptionResult> {
+    try {
+      switch (provider) {
+        case PaymentProvider.STRIPE: {
+          const subscription = await stripeService.resumeSubscription(subscriptionId);
+          return {
+            success: true,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+            data: subscription
+          };
+        }
+        case PaymentProvider.PAYPAL: {
+          const subscription = await paypalService.activateSubscription(subscriptionId, reason);
+          return {
+            success: true,
+            subscriptionId: subscriptionId,
+            status: 'active',
+            data: subscription
+          };
+        }
+        default:
+          throw new Error(`Payment provider ${provider} not supported`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        subscriptionId,
+        status: 'error',
+        error,
+        message: error instanceof Error ? error.message : 'Unknown subscription resume error'
+      };
+    }
+  }
+
+  /**
+   * Cancel a subscription
+   */
+  static async cancelSubscription(provider: PaymentProvider, subscriptionId: string, reason?: string, cancelImmediately: boolean = false): Promise<SubscriptionResult> {
+    try {
+      switch (provider) {
+        case PaymentProvider.STRIPE: {
+          const subscription = await stripeService.cancelSubscription(subscriptionId, cancelImmediately, reason);
           return {
             success: true,
             subscriptionId: subscription.id,
@@ -187,6 +387,45 @@ export class PaymentProviderFactory {
         status: 'error',
         error,
         message: error instanceof Error ? error.message : 'Unknown cancellation error'
+      };
+    }
+  }
+
+  /**
+   * Report usage for a metered subscription
+   */
+  static async reportUsage(provider: PaymentProvider, usageData: UsageReportData): Promise<any> {
+    try {
+      switch (provider) {
+        case PaymentProvider.STRIPE: {
+          const timestamp = typeof usageData.timestamp === 'object' 
+            ? Math.floor(usageData.timestamp.getTime() / 1000) 
+            : usageData.timestamp;
+          
+          const usageRecord = await stripeService.reportUsage(
+            usageData.subscriptionItemId,
+            usageData.quantity,
+            timestamp
+          );
+          return {
+            success: true,
+            usageRecordId: usageRecord.id,
+            data: usageRecord
+          };
+        }
+        case PaymentProvider.PAYPAL: {
+          // PayPal does not have a direct equivalent for usage-based billing
+          // We'll need to implement custom usage tracking and then charge accordingly
+          throw new Error('Usage-based billing not directly supported by PayPal. Implement custom logic.');
+        }
+        default:
+          throw new Error(`Payment provider ${provider} not supported`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error,
+        message: error instanceof Error ? error.message : 'Unknown usage reporting error'
       };
     }
   }

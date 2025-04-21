@@ -13,7 +13,8 @@
     "test": "jest",
     "lint": "eslint . --ext .ts",
     "db:setup": "ts-node scripts/setupDatabase.ts",
-    "db:migrate": "ts-node scripts/runMigrations.ts",
+    "db:migrate": "ts-node scripts/runMigration.ts",
+    "db:migrate:subscription": "ts-node scripts/runMigration.ts ../db/migrations/002_enhance_subscriptions.sql",
     "webhook:listen": "stripe listen --forward-to localhost:3000/api/webhooks/stripe"
   },
   "keywords": [
