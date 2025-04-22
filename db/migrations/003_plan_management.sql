@@ -55,12 +55,12 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_plan_changes_scheduled_at ON scheduled_
 INSERT INTO subscription_plans 
   (id, name, description, price, currency, billing_cycle, stripe_product_id, stripe_price_id, paypal_plan_id, "order")
 VALUES
-  ('basic_monthly', 'Basic Plan', 'Essential features for individuals', 9.99, 'USD', 'monthly', 'prod_basic', 'price_basic_monthly', 'P-BASIC', 10),
-  ('pro_monthly', 'Pro Plan', 'Advanced features for professionals', 19.99, 'USD', 'monthly', 'prod_pro', 'price_pro_monthly', 'P-PRO', 20),
-  ('enterprise_monthly', 'Enterprise Plan', 'Complete solution for businesses', 49.99, 'USD', 'monthly', 'prod_enterprise', 'price_enterprise_monthly', 'P-ENTERPRISE', 30),
-  ('basic_yearly', 'Basic Annual Plan', 'Essential features for individuals (yearly)', 99.99, 'USD', 'yearly', 'prod_basic', 'price_basic_yearly', 'P-BASIC-YEAR', 15),
-  ('pro_yearly', 'Pro Annual Plan', 'Advanced features for professionals (yearly)', 199.99, 'USD', 'yearly', 'prod_pro', 'price_pro_yearly', 'P-PRO-YEAR', 25),
-  ('enterprise_yearly', 'Enterprise Annual Plan', 'Complete solution for businesses (yearly)', 499.99, 'USD', 'yearly', 'prod_enterprise', 'price_enterprise_yearly', 'P-ENTERPRISE-YEAR', 35);
+  ('basic_monthly', 'Basic Plan', 'Essential features for individuals', 9.99, 'USD', 'monthly', 'prod_basic', 'price_1RGnTDEAYAtQV9XuSdNMSh4w', 'P-BASIC', 10),
+  ('pro_monthly', 'Pro Plan', 'Advanced features for professionals', 19.99, 'USD', 'monthly', 'prod_pro', 'price_1RGnTDEAYAtQV9XuPxpK58Zj', 'P-PRO', 20),
+  ('enterprise_monthly', 'Enterprise Plan', 'Complete solution for businesses', 49.99, 'USD', 'monthly', 'prod_enterprise', 'price_1RGnTEEAYAtQV9XuiJoPEkqd', 'P-ENTERPRISE', 30),
+  ('basic_yearly', 'Basic Annual Plan', 'Essential features for individuals (yearly)', 99.99, 'USD', 'yearly', 'prod_basic', 'price_1RGnaBEAYAtQV9XuwbDGBp8E', 'P-BASIC-YEAR', 15),
+  ('pro_yearly', 'Pro Annual Plan', 'Advanced features for professionals (yearly)', 199.99, 'USD', 'yearly', 'prod_pro', 'price_1RGnaBEAYAtQV9Xuo9feOIt3', 'P-PRO-YEAR', 25),
+  ('enterprise_yearly', 'Enterprise Annual Plan', 'Complete solution for businesses (yearly)', 499.99, 'USD', 'yearly', 'prod_enterprise', 'price_1RGnaCEAYAtQV9XuCp3amIQN', 'P-ENTERPRISE-YEAR', 35);
 
 -- Insert sample features for basic plan
 INSERT INTO plan_features

@@ -7,6 +7,9 @@ import path from 'path';
 import paymentRoutes from '../api/routes/paymentRoutes';
 import subscriptionRoutes from '../api/routes/subscriptionRoutes';
 import planRoutes from '../api/routes/planRoutes';
+import customerRoutes from '../api/routes/customerRoutes';
+import priceRoutes from '../api/routes/priceRoutes';
+import testRoutes from '../api/routes/testRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -75,6 +78,9 @@ app.get('/payment/cancel', (req: Request, res: Response) => {
 app.use('/api/payments', paymentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/plans', planRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/prices', priceRoutes);
+app.use('/api/test', testRoutes);
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

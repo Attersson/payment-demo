@@ -59,11 +59,15 @@ This project serves as a hands-on learning environment for building robust payme
    ```
    npm run db:migrate:all
    ```
-6. Start the development server:
+6. Create subscription plans in Stripe:
+   ```
+   npm run stripe:create-plans
+   ```
+7. Start the development server:
    ```
    npm run dev
    ```
-7. Access the demo UI at `http://localhost:3000`
+8. Access the demo UI at `http://localhost:3000`
 
 ### Detailed Setup Instructions
 
@@ -153,16 +157,65 @@ PAYPAL_ENVIRONMENT=sandbox
   sudo systemctl enable redis-server
   ```
 
-#### Database Migration System
+#### Database and Plan Setup
 
-The project uses a migration system to manage database schema changes:
+##### First-Time Database Setup
 
-- Run all migrations: `npm run db:migrate:all`
-- Run only the latest migration: `npm run db:migrate:latest`
-- Run specific migrations:
-  - `npm run db:migrate:webhook` - Set up webhook event tables
-  - `npm run db:migrate:subscription` - Set up subscription tables
-  - `npm run db:migrate:plans` - Set up plan management tables
+1. Initial database setup creates tables and base structure:
+   ```
+   npm run db:setup
+   ```
+
+2. Run all migrations in sequence to complete the schema:
+   ```
+   npm run db:migrate:all
+   ```
+
+   Or run specific migrations if needed:
+   ```
+   npm run db:migrate:webhook      # Set up webhook event tables
+   npm run db:migrate:subscription # Set up subscription tables
+   npm run db:migrate:plans        # Set up plan management tables
+   npm run db:migrate:customers    # Set up customer tables
+   ```
+
+3. Update the database with the current Stripe price IDs:
+   ```
+   npm run db:update-stripe-prices
+   ```
+   This script:
+   - Creates/updates plans in your Stripe account (if needed)
+   - Automatically retrieves the current price IDs using lookup keys
+   - Updates the database with the actual Stripe price IDs
+   - This step is crucial for ensuring the application can create subscriptions correctly
+
+##### Creating Subscription Plans
+
+The system needs plans defined in both the database and Stripe.
+
+1. **Database Plans**: Migration `003_plan_management.sql` automatically creates subscription plans in the database:
+   - Monthly plans:
+     - Basic: $9.99/month
+     - Pro: $19.99/month
+     - Enterprise: $49.99/month
+   - Annual plans (save ~16%):
+     - Basic: $99.99/year
+     - Pro: $199.99/year
+     - Enterprise: $499.99/year
+
+2. **Stripe Plans**: Create corresponding plans in Stripe with:
+   ```
+   npm run stripe:create-plans
+   ```
+   
+   This script:
+   - Creates products in Stripe for both monthly and annual billing
+   - Sets up recurring prices at both monthly and yearly intervals
+   - Uses lookup keys that match the database configuration
+
+3. If you want to customize the plans, edit:
+   - `db/migrations/003_plan_management.sql` for database plans
+   - `scripts/create-stripe-plans.js` for Stripe plans
 
 #### Payment Provider Accounts
 
@@ -196,6 +249,28 @@ If your database setup fails, you might need to:
    ```
 
 Then try running the setup script again.
+
+If you need to start over with a clean database:
+```
+npm run db:clean    # Clear all tables
+npm run db:migrate:all    # Recreate tables
+npm run db:update-stripe-prices    # Update price IDs
+```
+
+If Stripe plan creation fails:
+1. Verify your Stripe API key is correct in .env
+2. Check the Stripe dashboard for any existing products/prices
+3. You may need to delete existing plans in Stripe if you're recreating them
+
+If you encounter "No such price" errors when creating subscriptions:
+1. Make sure you've run `npm run stripe:create-plans` to create the required price points in Stripe
+2. Verify that the price IDs in your forms match those created by the script (`price_basic_monthly`, `price_pro_monthly`, `price_enterprise_monthly`)
+3. Check the Stripe dashboard to confirm the prices have been created with the correct lookup keys
+4. Run `npm run db:update-stripe-prices` to refresh your database with the current Stripe price IDs 
+5. After running the update script, you can verify the price IDs in your database with:
+   ```sql
+   SELECT id, name, stripe_price_id FROM subscription_plans;
+   ```
 
 ### Using the Payment Demo
 
@@ -269,6 +344,7 @@ payment-demo/
 ├── tests/              # Test suite
 └── scripts/            # Helper scripts
     └── runMigration.ts # Database migration script
+    └── create-stripe-plans.js # Script to create Stripe subscription plans
 ```
 
 ## Webhooks and Event Processing

@@ -32,19 +32,40 @@ class SubscriptionFlow {
   }
 
   ensureContainers() {
-    if (!this.container) return;
+    if (!this.container) {
+      console.error('Main subscription flow container is missing');
+      return;
+    }
     
-    // Clear container
-    this.container.innerHTML = '';
+    console.log('Ensuring subscription flow containers exist');
     
-    // Create containers for sub-components
-    const planContainer = document.createElement('div');
-    planContainer.id = `${this.container.id}-plans`;
-    this.container.appendChild(planContainer);
+    // Check if the containers already exist
+    let planContainer = document.getElementById(`${this.container.id}-plans`);
+    let subscriptionContainer = document.getElementById(`${this.container.id}-subscription`);
     
-    const subscriptionContainer = document.createElement('div');
-    subscriptionContainer.id = `${this.container.id}-subscription`;
-    this.container.appendChild(subscriptionContainer);
+    // Create containers for sub-components if needed
+    if (!planContainer) {
+      console.log('Creating plan selection container');
+      planContainer = document.createElement('div');
+      planContainer.id = `${this.container.id}-plans`;
+      this.container.appendChild(planContainer);
+    }
+    
+    if (!subscriptionContainer) {
+      console.log('Creating subscription container');
+      subscriptionContainer = document.createElement('div');
+      subscriptionContainer.id = `${this.container.id}-subscription`;
+      this.container.appendChild(subscriptionContainer);
+    }
+    
+    // Update references in components
+    if (this.planSelector) {
+      this.planSelector.container = planContainer;
+    }
+    
+    if (this.subscriptionManager) {
+      this.subscriptionManager.container = subscriptionContainer;
+    }
   }
 
   async initialize(existingSubscriptionId = null) {
@@ -57,10 +78,12 @@ class SubscriptionFlow {
     this.subscriptionManager.onActionComplete((action, subscription) => {
       if (action === 'created' || action === 'plan_changed') {
         // Hide the plan selection and just show subscription management
-        document.getElementById(`${this.container.id}-plans`).classList.add('d-none');
+        const planElement = document.getElementById(`${this.container.id}-plans`);
+        if (planElement) planElement.classList.add('d-none');
       } else if (action === 'cancelled') {
         // Show the plan selection again
-        document.getElementById(`${this.container.id}-plans`).classList.remove('d-none');
+        const planElement = document.getElementById(`${this.container.id}-plans`);
+        if (planElement) planElement.classList.remove('d-none');
         
         // Refresh plans
         this.planSelector.initialize();
@@ -70,7 +93,8 @@ class SubscriptionFlow {
     // Initialize components
     if (existingSubscriptionId) {
       // If we have an existing subscription, hide plan selection
-      document.getElementById(`${this.container.id}-plans`).classList.add('d-none');
+      const planElement = document.getElementById(`${this.container.id}-plans`);
+      if (planElement) planElement.classList.add('d-none');
       await this.subscriptionManager.initialize(existingSubscriptionId);
     } else {
       // Otherwise initialize plan selection
@@ -78,26 +102,45 @@ class SubscriptionFlow {
       
       // Check if user has any existing subscriptions
       try {
-        // This would be a call to your API to get the customer's subscriptions
-        // const response = await fetch(`${this.apiBaseUrl}/subscriptions?customerId=${this.customerId}`);
-        // const data = await response.json();
+        if (this.customerId) {
+          console.log(`Checking subscriptions for customer: ${this.customerId}`);
+          
+          // Call the API to get the customer's subscriptions
+          const response = await fetch(`${this.apiBaseUrl}/customers/${this.customerId}/subscriptions?provider=${this.provider}`);
+          const data = await response.json();
+          
+          if (data && data.success && data.subscriptions && data.subscriptions.length > 0) {
+            console.log(`Found ${data.subscriptions.length} subscriptions`, data.subscriptions);
+            
+            // If user has an active subscription, initialize subscription manager with it
+            const activeSubscription = data.subscriptions.find(s => s && s.status === 'active');
+            if (activeSubscription && activeSubscription.id) {
+              console.log(`Initializing with active subscription: ${activeSubscription.id}`);
+              const planElement = document.getElementById(`${this.container.id}-plans`);
+              if (planElement) planElement.classList.add('d-none');
+              await this.subscriptionManager.initialize(activeSubscription.id);
+              return;
+            } else {
+              console.log('No active subscription found among existing subscriptions');
+            }
+          } else {
+            if (!data || !data.success) {
+              console.error('Error fetching customer subscriptions:', data?.message || 'Unknown error');
+            } else {
+              console.log('No subscriptions found for customer');
+            }
+          }
+        } else {
+          console.log('No customer ID available, skipping subscription check');
+        }
         
-        // if (data.success && data.subscriptions.length > 0) {
-        //   // If user has an active subscription, initialize subscription manager with it
-        //   const activeSubscription = data.subscriptions.find(s => s.status === 'active');
-        //   if (activeSubscription) {
-        //     document.getElementById(`${this.container.id}-plans`).classList.add('d-none');
-        //     await this.subscriptionManager.initialize(activeSubscription.id);
-        //   }
-        // } else {
-        //   // No subscriptions, just show the plan selection
-        //   document.getElementById(`${this.container.id}-subscription`).classList.add('d-none');
-        // }
-        
-        // For now, just hide the subscription manager since we're starting with plan selection
-        document.getElementById(`${this.container.id}-subscription`).classList.add('d-none');
+        // No subscriptions or no customer ID, just show the plan selection
+        const subscriptionElement = document.getElementById(`${this.container.id}-subscription`);
+        if (subscriptionElement) subscriptionElement.classList.add('d-none');
       } catch (error) {
         console.error('Error checking for existing subscriptions:', error);
+        const subscriptionElement = document.getElementById(`${this.container.id}-subscription`);
+        if (subscriptionElement) subscriptionElement.classList.add('d-none');
       }
     }
   }

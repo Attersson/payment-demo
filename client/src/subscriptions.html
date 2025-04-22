@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Management</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Subscription Management</h1>
+        
+        <div class="section">
+            <h2>Your Active Subscriptions</h2>
+            <div class="card">
+                <div id="subscriptions-container">
+                    <p>Loading your subscriptions...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Enter Customer ID</h2>
+            <div class="card">
+                <div class="form-group">
+                    <input type="text" id="customer-id" placeholder="Enter your customer ID">
+                    <select id="provider">
+                        <option value="stripe">Stripe</option>
+                        <option value="paypal">PayPal</option>
+                    </select>
+                    <button id="lookup-btn" class="btn btn-primary">Lookup Subscriptions</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Test Subscriptions</h2>
+            <div class="card">
+                <button id="test-btn" class="btn btn-secondary">Load Test Subscriptions</button>
+                <div id="test-subscriptions-container">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const lookupBtn = document.getElementById('lookup-btn');
+            const testBtn = document.getElementById('test-btn');
+            const subscriptionsContainer = document.getElementById('subscriptions-container');
+            const testSubscriptionsContainer = document.getElementById('test-subscriptions-container');
+            
+            // Function to format currency
+            function formatCurrency(amount, currency) {
+                return new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: currency || 'USD'
+                }).format(amount / 100);
+            }
+            
+            // Function to display subscriptions
+            function displaySubscriptions(subscriptions, container) {
+                if (!subscriptions || subscriptions.length === 0) {
+                    container.innerHTML = '<p>No active subscriptions found.</p>';
+                    return;
+                }
+                
+                let html = '<div class="subscription-list">';
+                
+                subscriptions.forEach(subscription => {
+                    const startDate = new Date(subscription.current_period_start * 1000).toLocaleDateString();
+                    const endDate = new Date(subscription.current_period_end * 1000).toLocaleDateString();
+                    
+                    html += `
+                        <div class="subscription-item">
+                            <div class="subscription-header">
+                                <h3>${subscription.plan?.name || 'Subscription'}</h3>
+                                <span class="status status-${subscription.status}">${subscription.status}</span>
+                            </div>
+                            <div class="subscription-details">
+                                <p><strong>ID:</strong> ${subscription.id}</p>
+                                <p><strong>Price:</strong> ${formatCurrency(subscription.plan?.amount || 0, subscription.plan?.currency)}</p>
+                                <p><strong>Billing Period:</strong> ${startDate} to ${endDate}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                container.innerHTML = html;
+            }
+            
+            // Event listener for lookup button
+            lookupBtn.addEventListener('click', function() {
+                const customerId = document.getElementById('customer-id').value.trim();
+                const provider = document.getElementById('provider').value;
+                
+                if (!customerId) {
+                    alert('Please enter a customer ID');
+                    return;
+                }
+                
+                subscriptionsContainer.innerHTML = '<p>Loading subscriptions...</p>';
+                
+                fetch(`/api/customers/${customerId}/subscriptions?provider=${provider}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            displaySubscriptions(data.subscriptions, subscriptionsContainer);
+                        } else {
+                            subscriptionsContainer.innerHTML = `<p class="error">${data.message || 'Error retrieving subscriptions'}</p>`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        subscriptionsContainer.innerHTML = `<p class="error">Error retrieving subscriptions: ${error.message}</p>`;
+                    });
+            });
+            
+            // Event listener for test button
+            testBtn.addEventListener('click', function() {
+                testSubscriptionsContainer.innerHTML = '<p>Loading test subscriptions...</p>';
+                
+                fetch('/api/test/subscriptions')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            displaySubscriptions(data.subscriptions, testSubscriptionsContainer);
+                        } else {
+                            testSubscriptionsContainer.innerHTML = `<p class="error">${data.message || 'Error retrieving test subscriptions'}</p>`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        testSubscriptionsContainer.innerHTML = `<p class="error">Error retrieving test subscriptions: ${error.message}</p>`;
+                    });
+            });
+        });
+    </script>
+</body>
+</html> 

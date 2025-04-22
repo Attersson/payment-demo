@@ -1,10 +1,24 @@
 class SubscriptionManager {
   constructor(containerId, apiBaseUrl = 'http://localhost:3000/api') {
+    this.containerId = containerId; // Store the ID for later use
     this.container = document.getElementById(containerId);
     this.apiBaseUrl = apiBaseUrl;
-    this.subscription = null;
+    this.subscriptions = [];
     this.customerId = null;
     this.onActionCompleteCallback = null;
+    
+    // If container wasn't found on initialization, set up a retry mechanism
+    if (!this.container) {
+      console.warn(`Container with ID ${containerId} not found during initialization. Will attempt to find it when needed.`);
+      
+      // Try to find it on the next tick (after DOM might be updated)
+      setTimeout(() => {
+        this.container = document.getElementById(this.containerId);
+        if (this.container) {
+          console.log(`Container with ID ${this.containerId} found after delay.`);
+        }
+      }, 100);
+    }
   }
 
   setCustomerId(customerId) {
@@ -17,26 +31,130 @@ class SubscriptionManager {
 
   async initialize(subscriptionId = null) {
     try {
-      // If no specific subscription is provided, we'll show subscription creation UI
-      if (!subscriptionId) {
+      // If no specific subscription is provided, try to fetch customer subscriptions
+      if (!subscriptionId && this.customerId) {
+        console.log(`Fetching subscriptions for customer: ${this.customerId}`);
+        
+        // Fetch customer subscriptions
+        const response = await fetch(`${this.apiBaseUrl}/customers/${this.customerId}/subscriptions?provider=stripe`);
+        const data = await response.json();
+        
+        console.log('Customer subscriptions API response:', data);
+        
+        if (data && data.success) {
+          if (Array.isArray(data.subscriptions)) {
+            this.subscriptions = data.subscriptions;
+            this.renderSubscriptionsList();
+            return;
+          } else if (data.subscriptions) {
+            // Handle case where it's not an array but an object
+            this.subscriptions = [data.subscriptions];
+            this.renderSubscriptionsList();
+            return;
+          }
+        } else {
+          console.log('No subscriptions found or API response not successful:', data);
+        }
+        
+        // If we reach here, there was an issue or no subscriptions
         this.renderCreateSubscription();
         return;
       }
-
-      // Fetch subscription details
-      const response = await fetch(`${this.apiBaseUrl}/subscriptions/${subscriptionId}`);
-      const data = await response.json();
       
-      if (data.success) {
-        this.subscription = data.subscription;
-        this.renderSubscriptionDetails();
+      // If we have a specific subscription ID, fetch that subscription
+      if (subscriptionId) {
+        console.log(`Fetching subscription details for: ${subscriptionId}`);
+        
+        // Determine if we should use test endpoint
+        const isTestSubscription = subscriptionId.startsWith('test_');
+        const endpoint = isTestSubscription 
+          ? `${this.apiBaseUrl}/test/subscriptions/${subscriptionId}`
+          : `${this.apiBaseUrl}/subscriptions/${subscriptionId}`;
+        
+        // Fetch subscription details
+        const response = await fetch(endpoint);
+        console.log('Raw API response status:', response.status);
+        
+        const data = await response.json();
+        console.log('Subscription API response:', data);
+        
+        // Handle the response regardless of its structure
+        if (data) {
+          // Create a default subscription object with fallbacks
+          const defaultSubscription = {
+            id: subscriptionId,
+            status: 'active',
+            start_date: new Date().toISOString(),
+            current_period_start: new Date().toISOString(),
+            current_period_end: new Date(Date.now() + 30*24*60*60*1000).toISOString(),
+            plan_id: 'unknown',
+            plan_name: 'Subscription Plan',
+            provider: 'stripe'
+          };
+          
+          // The subscription might be directly in the response, 
+          // or in a 'subscription' property, or in 'data'
+          if (data.subscription) {
+            this.subscription = { ...defaultSubscription, ...data.subscription };
+          } else if (data.data) {
+            // Format the data into the expected structure
+            const formattedSubscription = {
+              id: data.subscriptionId || data.data.id || subscriptionId,
+              status: data.status || data.data.status || 'active',
+              provider: 'stripe',
+              // Handle date properties with fallbacks
+              start_date: data.data.created ? 
+                new Date(data.data.created * 1000).toISOString() : 
+                defaultSubscription.start_date,
+              current_period_start: data.data.current_period_start ? 
+                new Date(data.data.current_period_start * 1000).toISOString() : 
+                defaultSubscription.current_period_start,
+              current_period_end: data.data.current_period_end ?
+                new Date(data.data.current_period_end * 1000).toISOString() :
+                defaultSubscription.current_period_end,
+              // Handle plan details
+              plan_id: data.data.plan?.id || 
+                data.data.items?.data?.[0]?.plan?.id || 
+                defaultSubscription.plan_id,
+              plan_name: data.data.plan?.nickname || 
+                data.data.items?.data?.[0]?.plan?.nickname || 
+                defaultSubscription.plan_name
+            };
+            
+            this.subscription = formattedSubscription;
+          } else if (data.success) {
+            // Data exists but not in expected format, use the bare minimum
+            this.subscription = { 
+              ...defaultSubscription,
+              ...data // Include any available properties from the response
+            };
+          } else {
+            // Fallback to default if structure is completely unexpected
+            this.subscription = defaultSubscription;
+            console.warn('Using fallback subscription object - unexpected API response format', data);
+          }
+          
+          console.log('Processed subscription data:', this.subscription);
+          
+          // Ensure we have a subscription object before rendering
+          if (this.subscription && typeof this.subscription === 'object') {
+            this.renderSubscriptionDetails(this.subscription);
+          } else {
+            console.error('Failed to create valid subscription object', data);
+            this.renderError(`Failed to load subscription details: Invalid subscription data`);
+          }
+        } else {
+          const errorMessage = 'No data returned from API';
+          console.error(`Failed to fetch subscription: ${errorMessage}`);
+          this.renderError(`Failed to load subscription details: ${errorMessage}`);
+        }
       } else {
-        console.error('Failed to fetch subscription:', data.message);
-        this.renderError('Failed to load subscription details. Please try again later.');
+        // No subscription ID and no customer ID
+        this.renderCreateSubscription();
       }
     } catch (error) {
       console.error('Error initializing subscription manager:', error);
-      this.renderError('Failed to load subscription details. Please try again later.');
+      this.renderError(`Failed to load subscription details: ${error.message || 'Unknown error'}`);
     }
   }
 
@@ -68,7 +186,7 @@ class SubscriptionManager {
       
       if (data.success) {
         this.subscription = data.subscription;
-        this.renderSubscriptionDetails();
+        this.renderSubscriptionDetails(this.subscription);
         
         // Call the callback if set
         if (this.onActionCompleteCallback) {
@@ -84,10 +202,10 @@ class SubscriptionManager {
     }
   }
 
-  async cancelSubscription() {
+  async cancelSubscription(subscriptionId) {
     try {
-      if (!this.subscription) {
-        this.renderError('No active subscription found.');
+      if (!subscriptionId) {
+        this.renderError('No subscription ID provided.');
         return;
       }
 
@@ -106,19 +224,26 @@ class SubscriptionManager {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          subscriptionId: this.subscription.id
+          subscriptionId: subscriptionId
         })
       });
 
       const data = await response.json();
       
       if (data.success) {
-        this.subscription = data.subscription;
-        this.renderSubscriptionDetails();
+        // Update the subscription in our list
+        if (this.subscriptions) {
+          this.subscriptions = this.subscriptions.map(sub => 
+            sub.id === subscriptionId ? { ...sub, status: data.status || 'canceled' } : sub
+          );
+        }
+        
+        // Refresh the subscription list
+        this.initialize();
         
         // Call the callback if set
         if (this.onActionCompleteCallback) {
-          this.onActionCompleteCallback('cancelled', this.subscription);
+          this.onActionCompleteCallback('cancelled', data.subscription || { id: subscriptionId });
         }
       } else {
         console.error('Failed to cancel subscription:', data.message);
@@ -130,10 +255,10 @@ class SubscriptionManager {
     }
   }
 
-  async pauseSubscription() {
+  async pauseSubscription(subscriptionId) {
     try {
-      if (!this.subscription) {
-        this.renderError('No active subscription found.');
+      if (!subscriptionId) {
+        this.renderError('No subscription ID provided.');
         return;
       }
 
@@ -141,7 +266,7 @@ class SubscriptionManager {
       this.renderLoading('Pausing your subscription...');
 
       // Pause the subscription
-      const response = await fetch(`${this.apiBaseUrl}/subscriptions/${this.subscription.id}/pause`, {
+      const response = await fetch(`${this.apiBaseUrl}/subscriptions/${subscriptionId}/pause`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -151,12 +276,19 @@ class SubscriptionManager {
       const data = await response.json();
       
       if (data.success) {
-        this.subscription = data.subscription;
-        this.renderSubscriptionDetails();
+        // Update the subscription in our list
+        if (this.subscriptions) {
+          this.subscriptions = this.subscriptions.map(sub => 
+            sub.id === subscriptionId ? { ...sub, status: data.status || 'paused' } : sub
+          );
+        }
+        
+        // Refresh the subscription list
+        this.initialize();
         
         // Call the callback if set
         if (this.onActionCompleteCallback) {
-          this.onActionCompleteCallback('paused', this.subscription);
+          this.onActionCompleteCallback('paused', data.subscription || { id: subscriptionId });
         }
       } else {
         console.error('Failed to pause subscription:', data.message);
@@ -168,10 +300,10 @@ class SubscriptionManager {
     }
   }
 
-  async resumeSubscription() {
+  async resumeSubscription(subscriptionId) {
     try {
-      if (!this.subscription) {
-        this.renderError('No active subscription found.');
+      if (!subscriptionId) {
+        this.renderError('No subscription ID provided.');
         return;
       }
 
@@ -179,7 +311,7 @@ class SubscriptionManager {
       this.renderLoading('Resuming your subscription...');
 
       // Resume the subscription
-      const response = await fetch(`${this.apiBaseUrl}/subscriptions/${this.subscription.id}/resume`, {
+      const response = await fetch(`${this.apiBaseUrl}/subscriptions/${subscriptionId}/resume`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -189,12 +321,19 @@ class SubscriptionManager {
       const data = await response.json();
       
       if (data.success) {
-        this.subscription = data.subscription;
-        this.renderSubscriptionDetails();
+        // Update the subscription in our list
+        if (this.subscriptions) {
+          this.subscriptions = this.subscriptions.map(sub => 
+            sub.id === subscriptionId ? { ...sub, status: data.status || 'active' } : sub
+          );
+        }
+        
+        // Refresh the subscription list
+        this.initialize();
         
         // Call the callback if set
         if (this.onActionCompleteCallback) {
-          this.onActionCompleteCallback('resumed', this.subscription);
+          this.onActionCompleteCallback('resumed', data.subscription || { id: subscriptionId });
         }
       } else {
         console.error('Failed to resume subscription:', data.message);
@@ -232,7 +371,7 @@ class SubscriptionManager {
       
       if (data.success) {
         this.subscription = data.subscription;
-        this.renderSubscriptionDetails();
+        this.renderSubscriptionDetails(this.subscription);
         
         // Call the callback if set
         if (this.onActionCompleteCallback) {
@@ -251,7 +390,7 @@ class SubscriptionManager {
   renderCreateSubscription() {
     // This will be handled by the PlanSelection component
     // This component just provides the API methods
-    if (this.container) {
+    if (this.ensureContainer()) {
       this.container.innerHTML = '';
       
       const message = document.createElement('div');
@@ -262,8 +401,19 @@ class SubscriptionManager {
     }
   }
 
-  renderSubscriptionDetails() {
-    if (!this.container || !this.subscription) return;
+  renderSubscriptionDetails(subscription) {
+    if (!this.ensureContainer()) {
+      console.error('Cannot render subscription details: container is missing');
+      return;
+    }
+    
+    if (!subscription) {
+      console.error('Cannot render subscription details: subscription is missing');
+      this.renderError('Subscription data is not available');
+      return;
+    }
+    
+    console.log('Rendering subscription details:', subscription);
     
     // Clear container
     this.container.innerHTML = '';
@@ -274,13 +424,25 @@ class SubscriptionManager {
     
     // Card header
     const cardHeader = document.createElement('div');
-    cardHeader.className = 'card-header';
+    cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
     
     const title = document.createElement('h3');
     title.className = 'card-title';
     title.textContent = 'Subscription Details';
     
+    const backButton = document.createElement('button');
+    backButton.className = 'btn btn-sm btn-outline-secondary';
+    backButton.textContent = 'Back to All Subscriptions';
+    backButton.addEventListener('click', () => {
+      if (this.subscriptions && this.subscriptions.length > 0) {
+        this.renderSubscriptionsList();
+      } else {
+        this.initialize();
+      }
+    });
+    
     cardHeader.appendChild(title);
+    cardHeader.appendChild(backButton);
     card.appendChild(cardHeader);
     
     // Card body
@@ -293,14 +455,31 @@ class SubscriptionManager {
     
     const tbody = document.createElement('tbody');
     
+    // Safely get subscription properties with fallbacks
+    const status = subscription.status || 'unknown';
+    const planName = subscription.plan_name || 
+                     subscription.items?.data?.[0]?.plan?.nickname || 
+                     'Unknown Plan';
+    const planId = subscription.plan_id || 
+                   subscription.items?.data?.[0]?.plan?.id || 
+                   'unknown';
+    const startDate = this.formatDate(subscription.start_date || subscription.created);
+    const currentPeriodStart = this.formatDate(subscription.current_period_start);
+    const currentPeriodEnd = this.formatDate(subscription.current_period_end);
+    const provider = subscription.provider || 'unknown';
+    
     // Add rows for subscription details
     const detailsMap = [
-      { label: 'Status', value: this.formatStatus(this.subscription.status) },
-      { label: 'Plan', value: this.subscription.plan_name || this.subscription.plan_id },
-      { label: 'Start Date', value: this.formatDate(this.subscription.start_date) },
-      { label: 'Current Period', value: `${this.formatDate(this.subscription.current_period_start)} to ${this.formatDate(this.subscription.current_period_end)}` },
-      { label: 'Provider', value: this.subscription.provider }
+      { label: 'Status', value: this.formatStatus(status) },
+      { label: 'Plan', value: planName || planId },
+      { label: 'Start Date', value: startDate },
+      { label: 'Current Period', value: `${currentPeriodStart} to ${currentPeriodEnd}` },
+      { label: 'Provider', value: provider },
+      { label: 'ID', value: subscription.id || 'Unknown' }
     ];
+    
+    // Log the details we're rendering for debugging
+    console.log('Rendering subscription details:', detailsMap);
     
     detailsMap.forEach(detail => {
       const row = document.createElement('tr');
@@ -326,48 +505,47 @@ class SubscriptionManager {
     cardFooter.className = 'card-footer d-flex justify-content-between';
     
     // Add buttons based on subscription status
-    if (this.subscription.status === 'active') {
+    if (status === 'active') {
       // Pause button
       const pauseButton = document.createElement('button');
       pauseButton.className = 'btn btn-warning';
       pauseButton.textContent = 'Pause Subscription';
-      pauseButton.addEventListener('click', () => this.pauseSubscription());
+      pauseButton.addEventListener('click', () => this.pauseSubscription(subscription.id));
       cardFooter.appendChild(pauseButton);
       
       // Cancel button
       const cancelButton = document.createElement('button');
       cancelButton.className = 'btn btn-danger';
       cancelButton.textContent = 'Cancel Subscription';
-      cancelButton.addEventListener('click', () => this.cancelSubscription());
+      cancelButton.addEventListener('click', () => this.cancelSubscription(subscription.id));
       cardFooter.appendChild(cancelButton);
       
       // Change plan button
       const changePlanButton = document.createElement('button');
       changePlanButton.className = 'btn btn-primary';
       changePlanButton.textContent = 'Change Plan';
-      changePlanButton.addEventListener('click', () => this.showChangePlanModal());
+      changePlanButton.addEventListener('click', () => this.showChangePlanModal(subscription.id));
       cardFooter.appendChild(changePlanButton);
-    } else if (this.subscription.status === 'paused') {
+    } else if (status === 'paused') {
       // Resume button
       const resumeButton = document.createElement('button');
       resumeButton.className = 'btn btn-success';
       resumeButton.textContent = 'Resume Subscription';
-      resumeButton.addEventListener('click', () => this.resumeSubscription());
+      resumeButton.addEventListener('click', () => this.resumeSubscription(subscription.id));
       cardFooter.appendChild(resumeButton);
       
       // Cancel button
       const cancelButton = document.createElement('button');
       cancelButton.className = 'btn btn-danger';
       cancelButton.textContent = 'Cancel Subscription';
-      cancelButton.addEventListener('click', () => this.cancelSubscription());
+      cancelButton.addEventListener('click', () => this.cancelSubscription(subscription.id));
       cardFooter.appendChild(cancelButton);
-    } else if (this.subscription.status === 'canceled' || this.subscription.status === 'expired') {
+    } else if (status === 'canceled' || status === 'cancelled' || status === 'expired') {
       // New subscription button
       const newSubButton = document.createElement('button');
       newSubButton.className = 'btn btn-primary';
       newSubButton.textContent = 'Create New Subscription';
       newSubButton.addEventListener('click', () => {
-        this.subscription = null;
         this.renderCreateSubscription();
       });
       cardFooter.appendChild(newSubButton);
@@ -378,7 +556,7 @@ class SubscriptionManager {
   }
 
   renderLoading(message = 'Loading...') {
-    if (!this.container) return;
+    if (!this.ensureContainer()) return;
     
     // Clear container
     this.container.innerHTML = '';
@@ -402,7 +580,10 @@ class SubscriptionManager {
   }
 
   renderError(message) {
-    if (!this.container) return;
+    if (!this.ensureContainer()) {
+      console.error(`Could not render error: ${message}`);
+      return;
+    }
     
     // Clear container
     this.container.innerHTML = '';
@@ -415,7 +596,7 @@ class SubscriptionManager {
     this.container.appendChild(alert);
   }
 
-  showChangePlanModal() {
+  showChangePlanModal(subscriptionId) {
     // This would be implemented with a modal and the PlanSelection component
     alert('Plan change functionality would be implemented with a modal showing available plans.');
   }
@@ -437,8 +618,171 @@ class SubscriptionManager {
   formatDate(dateString) {
     if (!dateString) return 'N/A';
     
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
+    try {
+      // Handle Unix timestamps (seconds since epoch)
+      if (typeof dateString === 'number') {
+        // Ensure the timestamp is in milliseconds
+        const timestamp = dateString > 10000000000 ? dateString : dateString * 1000;
+        const date = new Date(timestamp);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleDateString();
+        }
+      }
+      
+      // Handle regular date strings
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date format:', dateString);
+        return 'N/A';
+      }
+      return date.toLocaleDateString();
+    } catch (error) {
+      console.error('Error formatting date:', error, dateString);
+      return 'N/A';
+    }
+  }
+
+  // Render a list of subscriptions
+  renderSubscriptionsList() {
+    if (!this.ensureContainer() || !this.subscriptions || this.subscriptions.length === 0) {
+      this.renderCreateSubscription();
+      return;
+    }
+    
+    console.log('Rendering subscriptions list:', this.subscriptions);
+    
+    // Clear container
+    this.container.innerHTML = '';
+    
+    // Create card
+    const card = document.createElement('div');
+    card.className = 'card';
+    
+    // Card header
+    const cardHeader = document.createElement('div');
+    cardHeader.className = 'card-header bg-primary text-white';
+    
+    const title = document.createElement('h3');
+    title.className = 'card-title';
+    title.textContent = 'Your Subscriptions';
+    
+    cardHeader.appendChild(title);
+    card.appendChild(cardHeader);
+    
+    // Card body
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body';
+    
+    if (this.subscriptions.length === 0) {
+      const noSubscriptions = document.createElement('p');
+      noSubscriptions.textContent = 'You don\'t have any subscriptions yet.';
+      cardBody.appendChild(noSubscriptions);
+    } else {
+      // Create a table for subscriptions
+      const table = document.createElement('table');
+      table.className = 'table table-striped';
+      
+      // Table header
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      
+      const headers = ['Plan', 'Status', 'Start Date', 'Renewal Date', 'Actions'];
+      
+      headers.forEach(headerText => {
+        const th = document.createElement('th');
+        th.textContent = headerText;
+        headerRow.appendChild(th);
+      });
+      
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      
+      // Table body
+      const tbody = document.createElement('tbody');
+      
+      this.subscriptions.forEach(subscription => {
+        const row = document.createElement('tr');
+        
+        // Plan name
+        const planCell = document.createElement('td');
+        const planName = subscription.plan_name || subscription.plan_id || subscription.items?.data?.[0]?.plan?.nickname || 'Unknown Plan';
+        planCell.textContent = planName;
+        
+        // Status
+        const statusCell = document.createElement('td');
+        statusCell.innerHTML = this.formatStatus(subscription.status || 'unknown');
+        
+        // Start date
+        const startDateCell = document.createElement('td');
+        startDateCell.textContent = this.formatDate(subscription.start_date || subscription.created);
+        
+        // Renewal date
+        const renewalDateCell = document.createElement('td');
+        renewalDateCell.textContent = this.formatDate(subscription.current_period_end);
+        
+        // Actions
+        const actionsCell = document.createElement('td');
+        
+        const viewButton = document.createElement('button');
+        viewButton.className = 'btn btn-sm btn-primary me-2';
+        viewButton.textContent = 'Manage';
+        viewButton.addEventListener('click', () => this.renderSubscriptionDetails(subscription));
+        
+        actionsCell.appendChild(viewButton);
+        
+        // Add cells to row
+        row.appendChild(planCell);
+        row.appendChild(statusCell);
+        row.appendChild(startDateCell);
+        row.appendChild(renewalDateCell);
+        row.appendChild(actionsCell);
+        
+        tbody.appendChild(row);
+      });
+      
+      table.appendChild(tbody);
+      cardBody.appendChild(table);
+    }
+    
+    card.appendChild(cardBody);
+    
+    // Card footer with action button to create a new subscription
+    const cardFooter = document.createElement('div');
+    cardFooter.className = 'card-footer';
+    
+    const newSubButton = document.createElement('button');
+    newSubButton.className = 'btn btn-success';
+    newSubButton.textContent = 'Create New Subscription';
+    newSubButton.addEventListener('click', () => {
+      this.renderCreateSubscription();
+    });
+    
+    cardFooter.appendChild(newSubButton);
+    card.appendChild(cardFooter);
+    
+    this.container.appendChild(card);
+  }
+
+  // Add this helper method to ensure container is available
+  ensureContainer() {
+    if (!this.container && this.containerId) {
+      console.log(`Trying to find container with ID: ${this.containerId}`);
+      this.container = document.getElementById(this.containerId);
+      
+      if (!this.container) {
+        // Look for any subscription container as a fallback
+        const subscriptionContainer = document.querySelector('[id$="-subscription"]');
+        if (subscriptionContainer) {
+          console.log(`Found alternative container with ID: ${subscriptionContainer.id}`);
+          this.container = subscriptionContainer;
+          this.containerId = subscriptionContainer.id;
+        } else {
+          console.error('No subscription container could be found in the DOM');
+          return false;
+        }
+      }
+    }
+    return !!this.container;
   }
 }
 

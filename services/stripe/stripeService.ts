@@ -27,6 +27,7 @@ export interface SubscriptionParams {
     price: string;
     quantity?: number;
   }>;
+  paymentMethodId?: string;
 }
 
 // New interfaces for subscription operations
@@ -88,17 +89,35 @@ export class StripeService {
   /**
    * Create a new customer
    */
-  async createCustomer(name: string, email: string, metadata?: Record<string, string>): Promise<Stripe.Customer> {
+  async createCustomer(params: { email: string, name?: string, metadata?: Record<string, string> }): Promise<Stripe.Customer> {
     try {
       const customer = await stripe.customers.create({
-        name,
-        email,
-        metadata,
+        email: params.email,
+        name: params.name,
+        metadata: params.metadata,
       });
 
       return customer;
     } catch (error) {
       console.error('Error creating customer:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a customer by ID
+   */
+  async getCustomer(customerId: string): Promise<Stripe.Customer> {
+    try {
+      const customer = await stripe.customers.retrieve(customerId);
+      
+      if (customer.deleted === true) {
+        throw new Error('Customer has been deleted');
+      }
+      
+      return customer as Stripe.Customer;
+    } catch (error) {
+      console.error('Error retrieving customer:', error);
       throw error;
     }
   }
@@ -124,6 +143,17 @@ export class StripeService {
       // Add cancel at period end if specified
       if (params.cancelAtPeriodEnd !== undefined) {
         subscriptionParams.cancel_at_period_end = params.cancelAtPeriodEnd;
+      }
+
+      // If payment method ID is provided, attach it to the customer and use it for the subscription
+      if (params.paymentMethodId) {
+        // Attach the payment method to the customer
+        await stripe.paymentMethods.attach(params.paymentMethodId, {
+          customer: params.customerId,
+        });
+        
+        // Set it as the default payment method for the subscription
+        subscriptionParams.default_payment_method = params.paymentMethodId;
       }
 
       const subscription = await stripe.subscriptions.create(subscriptionParams);
@@ -295,6 +325,23 @@ export class StripeService {
   }
 
   /**
+   * List prices by lookup key
+   */
+  async listPricesByLookupKey(lookupKey: string): Promise<Stripe.ApiList<Stripe.Price>> {
+    try {
+      const prices = await stripe.prices.list({
+        lookup_keys: [lookupKey],
+        limit: 1,
+        active: true
+      });
+      return prices;
+    } catch (error) {
+      console.error('Error retrieving prices by lookup key:', error);
+      throw error;
+    }
+  }
+
+  /**
    * List customer's subscriptions
    */
   async listSubscriptions(customerId: string, limit: number = 10): Promise<Stripe.ApiList<Stripe.Subscription>> {
@@ -347,6 +394,48 @@ export class StripeService {
       console.error('Error verifying webhook signature:', error);
       throw error;
     }
+  }
+
+  /**
+   * Update a customer
+   */
+  async updateCustomer(customerId: string, updateData: any) {
+    return await stripe.customers.update(customerId, updateData);
+  }
+
+  /**
+   * Delete a customer
+   */
+  async deleteCustomer(customerId: string) {
+    return await stripe.customers.del(customerId);
+  }
+
+  /**
+   * Attach a payment method to a customer
+   */
+  async attachPaymentMethod(customerId: string, paymentMethodId: string) {
+    const paymentMethod = await stripe.paymentMethods.attach(
+      paymentMethodId,
+      { customer: customerId }
+    );
+    return paymentMethod;
+  }
+
+  /**
+   * Detach a payment method
+   */
+  async detachPaymentMethod(paymentMethodId: string) {
+    return await stripe.paymentMethods.detach(paymentMethodId);
+  }
+
+  /**
+   * List a customer's payment methods
+   */
+  async listPaymentMethods(customerId: string, type: 'card' | 'sepa_debit' | 'us_bank_account' = 'card') {
+    return await stripe.customers.listPaymentMethods(
+      customerId,
+      { type }
+    );
   }
 }
 

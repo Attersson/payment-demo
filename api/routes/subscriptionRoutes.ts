@@ -96,7 +96,7 @@ router.post('/create', async (req: Request, res: Response) => {
         [
           result.subscriptionId,
           provider,
-          customerId,
+          customerId.toString(),
           provider === PaymentProvider.STRIPE ? priceId : planId,
           result.status,
           new Date(),
@@ -153,7 +153,26 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(400).json(result);
     }
 
-    return res.status(200).json(result);
+    // Convert the response to the format expected by the frontend
+    // Ensure the data is accessible through a "subscription" property
+    return res.status(200).json({
+      success: result.success,
+      message: result.message,
+      subscription: {
+        id: result.subscriptionId,
+        status: result.status,
+        // Add all properties from data
+        ...result.data,
+        // Format for SubscriptionManager component
+        // Use values from data if possible, otherwise provide sensible defaults
+        start_date: result.data.start_date || result.data.created || new Date().toISOString(),
+        current_period_start: result.data.current_period_start || new Date().toISOString(),
+        current_period_end: result.data.current_period_end || new Date(Date.now() + 30*24*60*60*1000).toISOString(),
+        plan_id: result.data.plan?.id || result.data.items?.data?.[0]?.plan?.id || 'unknown',
+        plan_name: result.data.plan?.nickname || result.data.items?.data?.[0]?.plan?.nickname || 'Subscription Plan',
+        provider: provider
+      }
+    });
   } catch (error) {
     console.error('Error retrieving subscription details:', error);
     return res.status(500).json({
