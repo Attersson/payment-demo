@@ -88,6 +88,25 @@ router.post('/create', async (req: Request, res: Response) => {
 
     // Store subscription in database
     try {
+      // First, look up the internal customer ID from our database
+      let internalCustomerId = null;
+      const customerResult = await pool.query(
+        'SELECT id FROM customers WHERE external_id = $1',
+        [customerId.toString()]
+      );
+      
+      if (customerResult.rows.length > 0) {
+        internalCustomerId = customerResult.rows[0].id;
+      } else {
+        console.warn(`Customer with external ID ${customerId} not found in database, creating placeholder record`);
+        // Create a placeholder customer record if we don't have one
+        const newCustomerResult = await pool.query(
+          'INSERT INTO customers (external_id, provider, email, name) VALUES ($1, $2, $3, $4) RETURNING id',
+          [customerId.toString(), provider, 'unknown@example.com', 'Unknown Customer']
+        );
+        internalCustomerId = newCustomerResult.rows[0].id;
+      }
+
       const dbResult = await pool.query(
         `INSERT INTO subscriptions 
          (subscription_id, provider, customer_id, plan_id, status, start_date, current_period_start, current_period_end, metadata) 
@@ -96,7 +115,7 @@ router.post('/create', async (req: Request, res: Response) => {
         [
           result.subscriptionId,
           provider,
-          customerId.toString(),
+          internalCustomerId, // Use the internal customer ID instead of the Stripe customer ID
           provider === PaymentProvider.STRIPE ? priceId : planId,
           result.status,
           new Date(),
@@ -147,10 +166,121 @@ router.get('/:id', async (req: Request, res: Response) => {
       });
     }
 
+    // First, check if we have this subscription in our database
+    let localSubscription = null;
+    try {
+      const dbResult = await pool.query(
+        'SELECT * FROM subscriptions WHERE subscription_id = $1',
+        [subscriptionId]
+      );
+      
+      if (dbResult.rows.length > 0) {
+        localSubscription = dbResult.rows[0];
+        console.log(`Found subscription ${subscriptionId} in database`);
+      }
+    } catch (dbError) {
+      console.error('Error retrieving subscription from database:', dbError);
+      // Continue to API lookup
+    }
+
+    // Always get from API for Stripe to ensure we have the latest details
     const result = await PaymentProviderFactory.getSubscription(provider, subscriptionId);
 
     if (!result.success) {
+      // If API call fails but we have local data, use that instead
+      if (localSubscription) {
+        console.log('Using cached subscription data from database due to API error');
+        return res.status(200).json({
+          success: true,
+          message: 'Subscription retrieved from database',
+          subscription: {
+            id: localSubscription.subscription_id,
+            status: localSubscription.status,
+            start_date: localSubscription.start_date,
+            current_period_start: localSubscription.current_period_start,
+            current_period_end: localSubscription.current_period_end,
+            plan_id: localSubscription.plan_id,
+            plan_name: localSubscription.metadata?.plan_name || 'Subscription Plan',
+            provider: localSubscription.provider
+          }
+        });
+      }
       return res.status(400).json(result);
+    }
+
+    // If we successfully retrieved from API, update our database
+    if (result.success && result.subscriptionId) {
+      try {
+        // Get the internal customer ID
+        let internalCustomerId = null;
+        let stripeCustomerId = result.data.customer;
+        
+        if (stripeCustomerId) {
+          const customerResult = await pool.query(
+            'SELECT id FROM customers WHERE external_id = $1',
+            [stripeCustomerId]
+          );
+          
+          if (customerResult.rows.length > 0) {
+            internalCustomerId = customerResult.rows[0].id;
+          } else {
+            // Create a placeholder customer record
+            console.log(`Customer ${stripeCustomerId} not found in database, creating placeholder`);
+            const newCustomerResult = await pool.query(
+              'INSERT INTO customers (external_id, provider, email, name) VALUES ($1, $2, $3, $4) RETURNING id',
+              [stripeCustomerId, provider, 'unknown@example.com', 'Unknown Customer']
+            );
+            internalCustomerId = newCustomerResult.rows[0].id;
+          }
+        }
+        
+        // Check if this subscription exists
+        const checkResult = await pool.query(
+          'SELECT id FROM subscriptions WHERE subscription_id = $1',
+          [result.subscriptionId]
+        );
+        
+        if (checkResult.rows.length === 0) {
+          // This is a new subscription, insert it
+          await pool.query(
+            `INSERT INTO subscriptions 
+             (subscription_id, provider, customer_id, plan_id, status, start_date, current_period_start, 
+             current_period_end, metadata) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [
+              result.subscriptionId,
+              provider,
+              internalCustomerId, // Use internal customer ID
+              result.data.plan?.id || result.data.items?.data?.[0]?.plan?.id || 'unknown',
+              result.status,
+              result.data.created ? new Date(result.data.created * 1000) : new Date(),
+              result.data.current_period_start ? new Date(result.data.current_period_start * 1000) : new Date(),
+              result.data.current_period_end ? new Date(result.data.current_period_end * 1000) : new Date(Date.now() + 30*24*60*60*1000),
+              JSON.stringify({
+                plan_name: result.data.plan?.nickname || result.data.items?.data?.[0]?.plan?.nickname || 'Subscription Plan'
+              })
+            ]
+          );
+          console.log(`Added subscription ${result.subscriptionId} to database`);
+        } else {
+          // Update the existing subscription
+          await pool.query(
+            `UPDATE subscriptions 
+             SET status = $1, current_period_start = $2, current_period_end = $3, updated_at = NOW() 
+             WHERE subscription_id = $4`,
+            [
+              result.status,
+              result.data.current_period_start ? new Date(result.data.current_period_start * 1000) : new Date(),
+              result.data.current_period_end ? new Date(result.data.current_period_end * 1000) : new Date(Date.now() + 30*24*60*60*1000),
+              result.subscriptionId
+            ]
+          );
+          console.log(`Updated subscription ${result.subscriptionId} in database`);
+        }
+      } catch (dbError) {
+        console.error('Error updating subscription in database:', dbError);
+        // Continue since we still have the API data
+      }
     }
 
     // Convert the response to the format expected by the frontend
