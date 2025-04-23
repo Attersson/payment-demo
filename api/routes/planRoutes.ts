@@ -12,9 +12,39 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const plans = await planService.getPlans();
     
+    // Process the plans to ensure correct format before sending to client
+    const formattedPlans = plans.map(plan => {
+      // Ensure price is a number
+      const price = typeof plan.price === 'string' ? parseFloat(plan.price) : plan.price;
+      
+      // Process features if they exist
+      let features = [];
+      if (plan.features) {
+        // Different DBs may return the features array in different formats
+        try {
+          if (typeof plan.features === 'string') {
+            features = JSON.parse(plan.features);
+          } else if (Array.isArray(plan.features)) {
+            features = plan.features;
+          } else {
+            features = [plan.features];
+          }
+        } catch (e) {
+          console.warn('Error parsing features for plan', plan.id, e);
+          features = [];
+        }
+      }
+      
+      return {
+        ...plan,
+        price: price, // Ensure price is a number
+        features: features
+      };
+    });
+    
     return res.status(200).json({
       success: true,
-      plans
+      plans: formattedPlans
     });
   } catch (error) {
     console.error('Error fetching plans:', error);

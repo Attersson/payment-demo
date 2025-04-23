@@ -30,33 +30,95 @@ class SubscriptionManager {
   }
 
   async initialize(subscriptionId = null) {
+    // Log the state of container and containerId at the start of initialization
+    console.log(`SubscriptionManager.initialize START: Container:`, this.container, `Container ID: ${this.containerId}`);
+    
     try {
       // If no specific subscription is provided, try to fetch customer subscriptions
       if (!subscriptionId && this.customerId) {
         console.log(`Fetching subscriptions for customer: ${this.customerId}`);
         
-        // Fetch customer subscriptions
-        const response = await fetch(`${this.apiBaseUrl}/customers/${this.customerId}/subscriptions?provider=stripe`);
-        const data = await response.json();
-        
-        console.log('Customer subscriptions API response:', data);
-        
-        if (data && data.success) {
-          if (Array.isArray(data.subscriptions)) {
-            this.subscriptions = data.subscriptions;
-            this.renderSubscriptionsList();
-            return;
-          } else if (data.subscriptions) {
-            // Handle case where it's not an array but an object
-            this.subscriptions = [data.subscriptions];
-            this.renderSubscriptionsList();
-            return;
+        try {
+          // Try to fetch from our API first with direct=true to force Stripe lookup
+          const response = await fetch(`${this.apiBaseUrl}/customers/${this.customerId}/subscriptions?provider=stripe&direct=true`);
+          const data = await response.json();
+          
+          console.log('Customer subscriptions API response:', data);
+          
+          // Process the subscriptions if we got them successfully
+          if (data && data.success && data.subscriptions) {
+            if (Array.isArray(data.subscriptions)) {
+              this.subscriptions = data.subscriptions;
+              console.log(`SubscriptionManager.initialize: About to render list (Array). Container:`, this.container);
+              this.renderSubscriptionsList();
+              return;
+            } else {
+              // Handle case where it's not an array but an object
+              this.subscriptions = [data.subscriptions];
+              console.log(`SubscriptionManager.initialize: About to render list (Object). Container:`, this.container);
+              this.renderSubscriptionsList();
+              return;
+            }
+          } else if (data && data.error && data.error.includes('database')) {
+            // Database error but maybe we have subscription data
+            if (data.subscriptions) {
+              console.log('Using subscription data from Stripe despite database error');
+              const subscriptions = Array.isArray(data.subscriptions) ? 
+                data.subscriptions : [data.subscriptions];
+              this.subscriptions = subscriptions;
+              console.log(`SubscriptionManager.initialize: About to render list (DB Error Fallback). Container:`, this.container);
+              this.renderSubscriptionsList();
+              return;
+            }
+          } else {
+            console.log('No subscriptions found or API response not successful:', data);
           }
-        } else {
-          console.log('No subscriptions found or API response not successful:', data);
+        } catch (apiError) {
+          console.error('Error fetching subscriptions from API:', apiError);
+          // We'll continue to the fallback approach below
         }
         
-        // If we reach here, there was an issue or no subscriptions
+        // If we reach here, there was an issue or no subscriptions found
+        // Let's try a fallback approach by fetching subscription data directly
+        try {
+          console.log('Attempting direct fetch strategy...');
+          // Display a message to the user that we're trying to retrieve data
+          console.log(`SubscriptionManager.initialize: About to render loading (Direct Fetch). Container:`, this.container);
+          this.renderLoading('Trying to retrieve your subscriptions directly...');
+          
+          // Try to directly get subscription data if we have a customerId
+          const directResponse = await fetch(`${this.apiBaseUrl}/subscriptions/list-direct?customerId=${this.customerId}&provider=stripe`);
+          const directData = await directResponse.json();
+          
+          if (directData && directData.success && directData.subscriptions) {
+            console.log('Direct fetch successful:', directData);
+            const subscriptions = Array.isArray(directData.subscriptions) ? 
+              directData.subscriptions : [directData.subscriptions];
+            this.subscriptions = subscriptions;
+            console.log(`SubscriptionManager.initialize: About to render list (Direct Fetch Success). Container:`, this.container);
+            this.renderSubscriptionsList();
+            return;
+          } else {
+            console.log('Direct fetch was unsuccessful:', directData);
+          }
+        } catch (directError) {
+          console.error('Error with direct fetch approach:', directError);
+        }
+        
+        // If we still don't have subscriptions, check if there's a last known subscription ID in localStorage
+        const lastSubscriptionId = localStorage.getItem(`${this.customerId}_last_subscription`);
+        if (lastSubscriptionId) {
+          console.log(`Trying with last known subscription ID: ${lastSubscriptionId}`);
+          try {
+            await this.initialize(lastSubscriptionId);
+            return;
+          } catch (lastSubError) {
+            console.error('Error using last known subscription ID:', lastSubError);
+          }
+        }
+        
+        // If all else fails, show the create subscription or no subscriptions message
+        console.log(`SubscriptionManager.initialize: About to render create message (Fallback). Container:`, this.container);
         this.renderCreateSubscription();
         return;
       }
@@ -65,95 +127,92 @@ class SubscriptionManager {
       if (subscriptionId) {
         console.log(`Fetching subscription details for: ${subscriptionId}`);
         
-        // Determine if we should use test endpoint
-        const isTestSubscription = subscriptionId.startsWith('test_');
-        const endpoint = isTestSubscription 
-          ? `${this.apiBaseUrl}/test/subscriptions/${subscriptionId}`
-          : `${this.apiBaseUrl}/subscriptions/${subscriptionId}`;
-        
-        // Fetch subscription details
-        const response = await fetch(endpoint);
-        console.log('Raw API response status:', response.status);
-        
-        const data = await response.json();
-        console.log('Subscription API response:', data);
-        
-        // Handle the response regardless of its structure
-        if (data) {
-          // Create a default subscription object with fallbacks
-          const defaultSubscription = {
-            id: subscriptionId,
-            status: 'active',
-            start_date: new Date().toISOString(),
-            current_period_start: new Date().toISOString(),
-            current_period_end: new Date(Date.now() + 30*24*60*60*1000).toISOString(),
-            plan_id: 'unknown',
-            plan_name: 'Subscription Plan',
-            provider: 'stripe'
-          };
-          
-          // The subscription might be directly in the response, 
-          // or in a 'subscription' property, or in 'data'
-          if (data.subscription) {
-            this.subscription = { ...defaultSubscription, ...data.subscription };
-          } else if (data.data) {
-            // Format the data into the expected structure
-            const formattedSubscription = {
-              id: data.subscriptionId || data.data.id || subscriptionId,
-              status: data.status || data.data.status || 'active',
-              provider: 'stripe',
-              // Handle date properties with fallbacks
-              start_date: data.data.created ? 
-                new Date(data.data.created * 1000).toISOString() : 
-                defaultSubscription.start_date,
-              current_period_start: data.data.current_period_start ? 
-                new Date(data.data.current_period_start * 1000).toISOString() : 
-                defaultSubscription.current_period_start,
-              current_period_end: data.data.current_period_end ?
-                new Date(data.data.current_period_end * 1000).toISOString() :
-                defaultSubscription.current_period_end,
-              // Handle plan details
-              plan_id: data.data.plan?.id || 
-                data.data.items?.data?.[0]?.plan?.id || 
-                defaultSubscription.plan_id,
-              plan_name: data.data.plan?.nickname || 
-                data.data.items?.data?.[0]?.plan?.nickname || 
-                defaultSubscription.plan_name
-            };
-            
-            this.subscription = formattedSubscription;
-          } else if (data.success) {
-            // Data exists but not in expected format, use the bare minimum
-            this.subscription = { 
-              ...defaultSubscription,
-              ...data // Include any available properties from the response
-            };
-          } else {
-            // Fallback to default if structure is completely unexpected
-            this.subscription = defaultSubscription;
-            console.warn('Using fallback subscription object - unexpected API response format', data);
-          }
-          
-          console.log('Processed subscription data:', this.subscription);
-          
-          // Ensure we have a subscription object before rendering
-          if (this.subscription && typeof this.subscription === 'object') {
-            this.renderSubscriptionDetails(this.subscription);
-          } else {
-            console.error('Failed to create valid subscription object', data);
-            this.renderError(`Failed to load subscription details: Invalid subscription data`);
-          }
-        } else {
-          const errorMessage = 'No data returned from API';
-          console.error(`Failed to fetch subscription: ${errorMessage}`);
-          this.renderError(`Failed to load subscription details: ${errorMessage}`);
+        // Store this subscription ID for future reference
+        if (this.customerId) {
+          localStorage.setItem(`${this.customerId}_last_subscription`, subscriptionId);
         }
+        
+        // Ensure subscriptionId is a string and then check if it starts with 'test_'
+        const subscriptionIdStr = String(subscriptionId);
+        const isTestSubscription = subscriptionIdStr.startsWith('test_');
+        
+        // Add a parameter to force direct Stripe lookup
+        const endpoint = isTestSubscription 
+          ? `${this.apiBaseUrl}/test/subscriptions/${subscriptionIdStr}`
+          : `${this.apiBaseUrl}/subscriptions/${subscriptionIdStr}?direct=true`; 
+        
+        try {
+          // First try with our API
+          const response = await fetch(endpoint);
+          console.log('Raw API response status:', response.status);
+          
+          const data = await response.json();
+          console.log('Subscription API response:', data);
+          
+          // Handle successful response
+          if (data && (data.success || data.data)) {
+            console.log(`SubscriptionManager.initialize: About to process data (API Success). Container:`, this.container);
+            this.processSubscriptionData(data, subscriptionId);
+            return;
+          } else if (data && data.error && data.error.includes('database')) {
+            // We have a database error but maybe subscription data is available
+            if (data.subscription || data.subscriptions) {
+              console.log('Using subscription data despite database error');
+              const subscriptionData = data.subscription || data.subscriptions;
+              console.log(`SubscriptionManager.initialize: About to process data (DB Error Fallback). Container:`, this.container);
+              this.processSubscriptionData({ data: subscriptionData }, subscriptionId);
+              return;
+            }
+          }
+          
+          console.warn('Unexpected API response format, will try direct method');
+        } catch (apiError) {
+          console.error('Error fetching from API:', apiError);
+        }
+        
+        // If we reach here, try a direct method as fallback
+        try {
+          console.log('Attempting direct subscription fetch...');
+          const directEndpoint = `${this.apiBaseUrl}/subscriptions/get-direct/${subscriptionIdStr}?provider=stripe`;
+          const directResponse = await fetch(directEndpoint);
+          const directData = await directResponse.json();
+          
+          if (directData && (directData.success || directData.data)) {
+            console.log('Direct subscription fetch successful');
+            console.log(`SubscriptionManager.initialize: About to process data (Direct Success). Container:`, this.container);
+            this.processSubscriptionData(directData, subscriptionId);
+            return;
+          } else {
+            console.warn('Direct subscription fetch failed:', directData);
+          }
+        } catch (directError) {
+          console.error('Error with direct subscription fetch:', directError);
+        }
+        
+        // Create a minimal fallback subscription with the ID we have
+        console.log('Creating minimal fallback subscription object');
+        const fallbackSub = {
+          id: subscriptionId,
+          status: 'unknown',
+          start_date: new Date().toISOString(),
+          current_period_start: new Date().toISOString(),
+          current_period_end: new Date(Date.now() + 30*24*60*60*1000).toISOString(),
+          plan_id: 'unknown',
+          plan_name: 'Subscription',
+          provider: 'stripe'
+        };
+        
+        this.subscription = fallbackSub;
+        console.log(`SubscriptionManager.initialize: About to render details (Minimal Fallback). Container:`, this.container);
+        this.renderSubscriptionDetails(this.subscription);
       } else {
         // No subscription ID and no customer ID
+        console.log(`SubscriptionManager.initialize: About to render create message (No IDs). Container:`, this.container);
         this.renderCreateSubscription();
       }
     } catch (error) {
       console.error('Error initializing subscription manager:', error);
+      console.log(`SubscriptionManager.initialize: About to render error. Container:`, this.container);
       this.renderError(`Failed to load subscription details: ${error.message || 'Unknown error'}`);
     }
   }
@@ -388,14 +447,26 @@ class SubscriptionManager {
   }
 
   renderCreateSubscription() {
-    // This will be handled by the PlanSelection component
-    // This component just provides the API methods
+    // Updated to not show plan selection but instead a message directing to subscription tab
     if (this.ensureContainer()) {
+      // Clear any loading spinners
+      const spinners = this.container.querySelectorAll('.spinner-border');
+      if (spinners.length > 0) {
+        spinners.forEach(spinner => {
+          if (spinner.parentElement && spinner.parentElement.classList.contains('d-flex')) {
+            spinner.parentElement.remove();
+          } else {
+            spinner.remove();
+          }
+        });
+      }
+      
+      // Clear container
       this.container.innerHTML = '';
       
       const message = document.createElement('div');
       message.className = 'alert alert-info';
-      message.textContent = 'Please select a plan to create a subscription.';
+      message.innerHTML = 'No active subscriptions found. To create a new subscription, please use the <strong>Subscription</strong> tab in the main payment form above.';
       
       this.container.appendChild(message);
     }
@@ -541,14 +612,11 @@ class SubscriptionManager {
       cancelButton.addEventListener('click', () => this.cancelSubscription(subscription.id));
       cardFooter.appendChild(cancelButton);
     } else if (status === 'canceled' || status === 'cancelled' || status === 'expired') {
-      // New subscription button
-      const newSubButton = document.createElement('button');
-      newSubButton.className = 'btn btn-primary';
-      newSubButton.textContent = 'Create New Subscription';
-      newSubButton.addEventListener('click', () => {
-        this.renderCreateSubscription();
-      });
-      cardFooter.appendChild(newSubButton);
+      // For cancelled subscriptions, just show a message that new subscriptions should be created using the subscription tab
+      const infoMessage = document.createElement('div');
+      infoMessage.className = 'alert alert-info w-100 mb-0';
+      infoMessage.innerHTML = 'To create a new subscription, please use the <strong>Subscription</strong> tab in the main payment form above.';
+      cardFooter.appendChild(infoMessage);
     }
     
     card.appendChild(cardFooter);
@@ -746,43 +814,118 @@ class SubscriptionManager {
     
     card.appendChild(cardBody);
     
-    // Card footer with action button to create a new subscription
-    const cardFooter = document.createElement('div');
-    cardFooter.className = 'card-footer';
-    
-    const newSubButton = document.createElement('button');
-    newSubButton.className = 'btn btn-success';
-    newSubButton.textContent = 'Create New Subscription';
-    newSubButton.addEventListener('click', () => {
-      this.renderCreateSubscription();
-    });
-    
-    cardFooter.appendChild(newSubButton);
-    card.appendChild(cardFooter);
-    
+    // Remove the "Create New Subscription" button from the footer
     this.container.appendChild(card);
   }
 
   // Add this helper method to ensure container is available
   ensureContainer() {
-    if (!this.container && this.containerId) {
+    // Log the current state of this.container and this.containerId
+    console.log(`ensureContainer: Current this.container:`, this.container, `Current this.containerId: ${this.containerId}`);
+    
+    // If this.container is already a valid DOM element, we are good.
+    if (this.container && typeof this.container.appendChild === 'function') {
+      return true;
+    }
+    
+    // If container wasn't found before OR is not a valid element, try to find it again using the ID.
+    if (this.containerId) {
       console.log(`Trying to find container with ID: ${this.containerId}`);
-      this.container = document.getElementById(this.containerId);
+      const foundContainer = document.getElementById(this.containerId);
       
-      if (!this.container) {
-        // Look for any subscription container as a fallback
+      if (foundContainer) {
+        console.log('Found container via getElementById');
+        this.container = foundContainer; // Assign the found element
+        return true;
+      } else {
+        // Look for any subscription container as a fallback (original fallback)
         const subscriptionContainer = document.querySelector('[id$="-subscription"]');
         if (subscriptionContainer) {
           console.log(`Found alternative container with ID: ${subscriptionContainer.id}`);
           this.container = subscriptionContainer;
           this.containerId = subscriptionContainer.id;
+          return true;
         } else {
           console.error('No subscription container could be found in the DOM');
           return false;
         }
       }
+    } else {
+      console.error('Cannot ensure container: containerId is missing.');
+      return false;
     }
-    return !!this.container;
+  }
+
+  // Helper method to process and standardize subscription data from different sources
+  processSubscriptionData(data, subscriptionId) {
+    const defaultSubscription = {
+      id: subscriptionId,
+      status: 'active',
+      start_date: new Date().toISOString(),
+      current_period_start: new Date().toISOString(),
+      current_period_end: new Date(Date.now() + 30*24*60*60*1000).toISOString(),
+      plan_id: 'unknown',
+      plan_name: 'Subscription Plan',
+      provider: 'stripe'
+    };
+    
+    try {
+      // The subscription might be directly in the response, 
+      // or in a 'subscription' property, or in 'data'
+      if (data.subscription) {
+        this.subscription = { ...defaultSubscription, ...data.subscription };
+      } else if (data.data) {
+        // Format the data into the expected structure
+        const formattedSubscription = {
+          id: data.subscriptionId || data.data.id || subscriptionId,
+          status: data.status || data.data.status || 'active',
+          provider: 'stripe',
+          // Handle date properties with fallbacks
+          start_date: data.data.created ? 
+            new Date(data.data.created * 1000).toISOString() : 
+            defaultSubscription.start_date,
+          current_period_start: data.data.current_period_start ? 
+            new Date(data.data.current_period_start * 1000).toISOString() : 
+            defaultSubscription.current_period_start,
+          current_period_end: data.data.current_period_end ?
+            new Date(data.data.current_period_end * 1000).toISOString() :
+            defaultSubscription.current_period_end,
+          // Handle plan details
+          plan_id: data.data.plan?.id || 
+            data.data.items?.data?.[0]?.plan?.id || 
+            defaultSubscription.plan_id,
+          plan_name: data.data.plan?.nickname || 
+            data.data.items?.data?.[0]?.plan?.nickname || 
+            defaultSubscription.plan_name
+        };
+        
+        this.subscription = formattedSubscription;
+      } else if (data.success) {
+        // Data exists but not in expected format, use the bare minimum
+        this.subscription = { 
+          ...defaultSubscription,
+          ...data // Include any available properties from the response
+        };
+      } else {
+        // Fallback to default if structure is completely unexpected
+        this.subscription = defaultSubscription;
+        console.warn('Using fallback subscription object - unexpected data format', data);
+      }
+      
+      console.log('Processed subscription data:', this.subscription);
+      
+      // Ensure we have a subscription object before rendering
+      if (this.subscription && typeof this.subscription === 'object') {
+        this.renderSubscriptionDetails(this.subscription);
+      } else {
+        console.error('Failed to create valid subscription object', data);
+        this.renderError(`Failed to load subscription details: Invalid subscription data`);
+      }
+    } catch (processingError) {
+      console.error('Error processing subscription data:', processingError);
+      this.subscription = defaultSubscription;
+      this.renderSubscriptionDetails(this.subscription);
+    }
   }
 }
 

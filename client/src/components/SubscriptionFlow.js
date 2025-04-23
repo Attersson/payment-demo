@@ -69,38 +69,33 @@ class SubscriptionFlow {
   }
 
   async initialize(existingSubscriptionId = null) {
-    // Set up event handlers
-    this.planSelector.onPlanSelect((plan) => {
-      this.selectedPlan = plan;
-      this.renderCreateSubscriptionButton();
-    });
+    // Ensure containers exist and references are up-to-date before proceeding
+    this.ensureContainers();
     
-    this.subscriptionManager.onActionComplete((action, subscription) => {
-      if (action === 'created' || action === 'plan_changed') {
-        // Hide the plan selection and just show subscription management
-        const planElement = document.getElementById(`${this.container.id}-plans`);
-        if (planElement) planElement.classList.add('d-none');
-      } else if (action === 'cancelled') {
-        // Show the plan selection again
-        const planElement = document.getElementById(`${this.container.id}-plans`);
-        if (planElement) planElement.classList.remove('d-none');
-        
-        // Refresh plans
-        this.planSelector.initialize();
+    // Always hide the plan selection UI - we don't want to allow subscription creation here
+    const planElement = document.getElementById(`${this.container.id}-plans`);
+    if (planElement) planElement.classList.add('d-none');
+    
+    // Clear any loading spinner that might be in the main container
+    if (this.container) {
+      // Look for spinner elements
+      const spinners = this.container.querySelectorAll('.spinner-border');
+      if (spinners.length > 0) {
+        // Remove any spinners
+        spinners.forEach(spinner => {
+          if (spinner.parentElement) {
+            spinner.parentElement.remove();
+          }
+        });
       }
-    });
+    }
     
-    // Initialize components
+    // Initialize subscription manager for viewing existing subscriptions
     if (existingSubscriptionId) {
-      // If we have an existing subscription, hide plan selection
-      const planElement = document.getElementById(`${this.container.id}-plans`);
-      if (planElement) planElement.classList.add('d-none');
+      // If we have a specific subscription ID, initialize with it
       await this.subscriptionManager.initialize(existingSubscriptionId);
     } else {
-      // Otherwise initialize plan selection
-      await this.planSelector.initialize();
-      
-      // Check if user has any existing subscriptions
+      // Otherwise check if user has any existing subscriptions
       try {
         if (this.customerId) {
           console.log(`Checking subscriptions for customer: ${this.customerId}`);
@@ -115,33 +110,46 @@ class SubscriptionFlow {
             // If user has an active subscription, initialize subscription manager with it
             const activeSubscription = data.subscriptions.find(s => s && s.status === 'active');
             if (activeSubscription && activeSubscription.id) {
-              console.log(`Initializing with active subscription: ${activeSubscription.id}`);
-              const planElement = document.getElementById(`${this.container.id}-plans`);
-              if (planElement) planElement.classList.add('d-none');
-              await this.subscriptionManager.initialize(activeSubscription.id);
+              console.log(`Initializing with active subscription: ${activeSubscription.subscription_id || activeSubscription.id}`);
+              await this.subscriptionManager.initialize(activeSubscription.subscription_id || activeSubscription.id);
               return;
             } else {
               console.log('No active subscription found among existing subscriptions');
+              // Just initialize subscription manager to show the list of subscriptions
+              await this.subscriptionManager.initialize();
             }
           } else {
             if (!data || !data.success) {
               console.error('Error fetching customer subscriptions:', data?.message || 'Unknown error');
             } else {
               console.log('No subscriptions found for customer');
+              // Initialize subscription manager with no subscription ID
+              await this.subscriptionManager.initialize();
             }
           }
         } else {
-          console.log('No customer ID available, skipping subscription check');
+          console.log('No customer ID available, nothing to display');
+          // Display a message that no customer is selected
+          this.renderNoCustomerMessage();
         }
-        
-        // No subscriptions or no customer ID, just show the plan selection
-        const subscriptionElement = document.getElementById(`${this.container.id}-subscription`);
-        if (subscriptionElement) subscriptionElement.classList.add('d-none');
       } catch (error) {
         console.error('Error checking for existing subscriptions:', error);
+        // Show error in subscription container
         const subscriptionElement = document.getElementById(`${this.container.id}-subscription`);
-        if (subscriptionElement) subscriptionElement.classList.add('d-none');
+        if (subscriptionElement) {
+          subscriptionElement.innerHTML = `<div class="alert alert-danger">Failed to load subscription data: ${error.message}</div>`;
+          subscriptionElement.classList.remove('d-none');
+        }
       }
+    }
+  }
+
+  // Add a method to show a message when no customer is selected
+  renderNoCustomerMessage() {
+    const subscriptionElement = document.getElementById(`${this.container.id}-subscription`);
+    if (subscriptionElement) {
+      subscriptionElement.innerHTML = `<div class="alert alert-info">Please select or create a customer to view subscriptions.</div>`;
+      subscriptionElement.classList.remove('d-none');
     }
   }
 
@@ -200,17 +208,23 @@ class SubscriptionFlow {
     paymentMethodLabel.className = 'form-label';
     paymentMethodLabel.textContent = 'Select Payment Method';
     
-    const paymentMethods = ['Credit Card', 'PayPal']; // This would be dynamic based on available methods
+    // Temporarily only offer Stripe since PayPal isn't fully implemented
+    const paymentMethods = ['Credit Card']; // Removed PayPal temporarily
     
     const paymentMethodSelect = document.createElement('select');
     paymentMethodSelect.className = 'form-select';
     
     paymentMethods.forEach((method, index) => {
       const option = document.createElement('option');
-      option.value = index === 0 ? 'stripe' : 'paypal';
+      option.value = 'stripe'; // Always use stripe for now
       option.textContent = method;
       paymentMethodSelect.appendChild(option);
     });
+    
+    // Add a note about PayPal not being available
+    const paypalNote = document.createElement('div');
+    paypalNote.className = 'form-text text-muted';
+    paypalNote.textContent = 'PayPal integration is coming soon.';
     
     paymentMethodSelect.addEventListener('change', (e) => {
       this.provider = e.target.value;
@@ -222,6 +236,7 @@ class SubscriptionFlow {
     
     paymentMethodForm.appendChild(paymentMethodLabel);
     paymentMethodForm.appendChild(paymentMethodSelect);
+    paymentMethodForm.appendChild(paypalNote);
     cardBody.appendChild(paymentMethodForm);
     
     // Add custom payment method UI based on provider
@@ -241,6 +256,11 @@ class SubscriptionFlow {
       // In a real implementation, you would first collect payment information
       // and then create the subscription with that information.
       // For now, we'll just simulate having a payment method ID.
+      
+      if (this.provider !== 'stripe') {
+        alert('Only Stripe payments are currently supported. PayPal integration coming soon.');
+        return;
+      }
       
       if (!this.paymentMethodId) {
         // Simulate a payment method ID for demonstration

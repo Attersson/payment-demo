@@ -1,9 +1,9 @@
 import express, { Request, Response } from 'express';
-import { PaymentProvider, PaymentProviderFactory } from '../../services/paymentProviderFactory';
-import stripeService from '../../services/stripe/stripeService';
-import paypalService from '../../services/paypal/paypalService';
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import { PaymentProviderFactory, PaymentProvider, subscriptionDatabaseService } from '../../services';
+import stripeService from '../../services/stripe/stripeService';
+import paypalService from '../../services/paypal/paypalService';
 
 dotenv.config();
 
@@ -268,76 +268,58 @@ router.get('/:id/subscriptions', async (req: Request, res: Response) => {
       });
     }
     
-    // First, check our database for subscriptions
-    let localSubscriptions: any[] = [];
-    
+    // Get subscriptions from database
     try {
-      // First, get the internal customer ID
-      const customerResult = await pool.query(
-        'SELECT id FROM customers WHERE external_id = $1 AND provider = $2',
-        [customerId, provider]
+      const subscriptions = await subscriptionDatabaseService.getSubscriptionsByCustomerExternalId(
+        customerId, 
+        provider,
+        true // Include subscription items
       );
+
+      // For subscriptions.html (where we explicitly want to query Stripe directly),
+      // we will have a special query parameter
+      const queryDirectly = req.query.direct === 'true';
       
-      if (customerResult.rows.length > 0) {
-        const internalCustomerId = customerResult.rows[0].id;
-        
-        // Now get subscriptions using the internal ID
-        const dbResult = await pool.query(
-          'SELECT * FROM subscriptions WHERE customer_id = $1 AND provider = $2',
-          [internalCustomerId, provider]
-        );
-        
-        localSubscriptions = dbResult.rows;
-        console.log(`Found ${localSubscriptions.length} subscriptions in database for customer ${customerId}`);
-      } else {
-        console.log(`No customer found in database with external ID ${customerId}`);
+      // If we have database data and don't need to query directly, or if it's not Stripe, return the DB data
+      if ((subscriptions.length > 0 && !queryDirectly) || provider !== PaymentProvider.STRIPE) {
+        console.log(`Returning ${subscriptions.length} subscriptions from database for customer ${customerId}`);
+        return res.status(200).json({
+          success: true,
+          subscriptions: subscriptions
+        });
       }
-    } catch (dbError) {
-      console.error('Error retrieving subscriptions from database:', dbError);
-      // Continue to API lookup even if DB lookup failed
-    }
-    
-    // If we have local data and it's not Stripe, return it
-    if (localSubscriptions.length > 0 && provider !== PaymentProvider.STRIPE) {
-      return res.status(200).json({
-        success: true,
-        subscriptions: localSubscriptions
-      });
-    }
-    
-    // For Stripe, get subscriptions from the API to ensure we have the latest data
-    if (provider === PaymentProvider.STRIPE) {
-      try {
-        const result = await PaymentProviderFactory.getCustomerSubscriptions(provider, customerId);
-        
-        if (!result.success) {
-          // If API call fails but we have local data, return that
-          if (localSubscriptions.length > 0) {
-            console.log('Using cached subscription data from database due to API error');
-            return res.status(200).json({
-              success: true,
-              subscriptions: localSubscriptions
-            });
+      
+      // For Stripe with direct query or no database data, get from the API
+      if (provider === PaymentProvider.STRIPE && (queryDirectly || subscriptions.length === 0)) {
+        try {
+          const result = await PaymentProviderFactory.getCustomerSubscriptions(provider, customerId);
+          
+          if (!result.success) {
+            // If API call fails but we have local data, return that
+            if (subscriptions.length > 0) {
+              console.log('Using cached subscription data from database due to API error');
+              return res.status(200).json({
+                success: true,
+                subscriptions: subscriptions
+              });
+            }
+            
+            return res.status(400).json(result);
           }
           
-          return res.status(400).json(result);
-        }
-        
-        const stripeSubscriptions = result.data;
-        
-        // Check for new subscriptions that aren't in our database and add them
-        if (stripeSubscriptions && stripeSubscriptions.length > 0) {
-          // First get the internal customer ID
-          let internalCustomerId: number | null = null;
+          const stripeSubscriptions = result.data;
           
-          try {
+          // For any subscriptions from Stripe not in our database, we should add them
+          if (stripeSubscriptions && stripeSubscriptions.length > 0) {
+            // Find the internal customer ID
             const customerResult = await pool.query(
               'SELECT id FROM customers WHERE external_id = $1 AND provider = $2',
               [customerId, provider]
             );
             
+            let internalCustomerId: number | null = null;
+            
             if (customerResult.rows.length === 0) {
-              console.log(`Customer ${customerId} not found in database, creating placeholder`);
               // Create a placeholder customer record
               const newCustomerResult = await pool.query(
                 'INSERT INTO customers (external_id, provider, email, name) VALUES ($1, $2, $3, $4) RETURNING id',
@@ -347,91 +329,112 @@ router.get('/:id/subscriptions', async (req: Request, res: Response) => {
             } else {
               internalCustomerId = customerResult.rows[0].id;
             }
-          
-            // Only proceed with storing subscriptions if we have a valid customer ID
-            if (internalCustomerId) {
-              for (const subscription of stripeSubscriptions) {
-                // Check if this subscription exists in our database
-                const existsInDb = localSubscriptions.some(s => s.subscription_id === subscription.id);
-                
-                if (!existsInDb) {
-                  try {
-                    // Insert the new subscription into our database
-                    await pool.query(
-                      `INSERT INTO subscriptions 
-                      (subscription_id, provider, customer_id, plan_id, status, start_date, current_period_start, 
-                      current_period_end, metadata) 
-                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                      [
-                        subscription.id,
-                        provider,
-                        internalCustomerId, // Use internal customer ID
-                        // Use type assertion to access plan properties
-                        (subscription as any).plan?.id || 
-                        (subscription as any).items?.data?.[0]?.plan?.id || 
-                        'unknown',
-                        subscription.status,
-                        new Date((subscription as any).created * 1000),
-                        new Date((subscription as any).current_period_start * 1000),
-                        new Date((subscription as any).current_period_end * 1000),
-                        JSON.stringify({})
-                      ]
+            
+            // Get existing subscription IDs from DB
+            const existingSubIds = subscriptions.map(sub => sub.subscription_id);
+            
+            // Process each Stripe subscription
+            for (const subscription of stripeSubscriptions) {
+              if (!existingSubIds.includes(subscription.id)) {
+                // This is a new subscription, add it to the database
+                try {
+                  await pool.query(
+                    `INSERT INTO subscriptions 
+                    (subscription_id, provider, customer_id, plan_id, status, start_date, current_period_start, 
+                    current_period_end, metadata) 
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                    [
+                      subscription.id,
+                      provider,
+                      internalCustomerId,
+                      (subscription as any).plan?.id || 
+                      (subscription as any).items?.data?.[0]?.plan?.id || 
+                      'unknown',
+                      subscription.status,
+                      new Date((subscription as any).created * 1000),
+                      new Date((subscription as any).current_period_start * 1000),
+                      new Date((subscription as any).current_period_end * 1000),
+                      JSON.stringify(subscription)
+                    ]
+                  );
+                  
+                  // If there are subscription items, add them
+                  if ((subscription as any).items?.data) {
+                    const dbResult = await pool.query(
+                      'SELECT id FROM subscriptions WHERE subscription_id = $1',
+                      [subscription.id]
                     );
-                    console.log(`Added new subscription ${subscription.id} to database`);
-                  } catch (insertError) {
-                    console.error(`Error saving subscription ${subscription.id} to database:`, insertError);
+                    
+                    if (dbResult.rows.length > 0) {
+                      const dbSubscriptionId = dbResult.rows[0].id;
+                      
+                      for (const item of (subscription as any).items.data) {
+                        await pool.query(
+                          `INSERT INTO subscription_items
+                           (subscription_id, external_item_id, price_id, quantity)
+                           VALUES ($1, $2, $3, $4)`,
+                          [
+                            dbSubscriptionId,
+                            item.id,
+                            item.price.id,
+                            item.quantity
+                          ]
+                        );
+                      }
+                    }
                   }
-                } else {
-                  // Update the existing subscription with latest data
-                  try {
-                    await pool.query(
-                      `UPDATE subscriptions 
-                      SET status = $1, current_period_start = $2, current_period_end = $3, updated_at = NOW() 
-                      WHERE subscription_id = $4`,
-                      [
-                        subscription.status,
-                        new Date((subscription as any).current_period_start * 1000),
-                        new Date((subscription as any).current_period_end * 1000),
-                        subscription.id
-                      ]
-                    );
-                    console.log(`Updated subscription ${subscription.id} in database`);
-                  } catch (updateError) {
-                    console.error(`Error updating subscription ${subscription.id} in database:`, updateError);
-                  }
+                  
+                  console.log(`Added new subscription ${subscription.id} to database`);
+                } catch (insertError) {
+                  console.error(`Error saving subscription ${subscription.id} to database:`, insertError);
                 }
               }
             }
-          } catch (customerError) {
-            console.error('Error retrieving customer ID:', customerError);
-            // Continue to API lookup even if customer ID retrieval fails
           }
+          
+          return res.status(200).json({
+            success: true,
+            subscriptions: stripeSubscriptions
+          });
+        } catch (apiError) {
+          console.error('Error calling Stripe API:', apiError);
+          
+          // If API call throws but we have local data, return that
+          if (subscriptions.length > 0) {
+            console.log('Using cached subscription data from database due to API error');
+            return res.status(200).json({
+              success: true,
+              subscriptions: subscriptions
+            });
+          }
+          
+          throw apiError;
+        }
+      }
+      
+      // If we get here, return what we have from the database
+      return res.status(200).json({
+        success: true,
+        subscriptions: subscriptions
+      });
+    } catch (dbError) {
+      console.error('Error retrieving subscriptions from database:', dbError);
+      
+      // If database query fails, fall back to API
+      if (provider === PaymentProvider.STRIPE) {
+        const result = await PaymentProviderFactory.getCustomerSubscriptions(provider, customerId);
+        
+        if (!result.success) {
+          return res.status(400).json(result);
         }
         
         return res.status(200).json({
           success: true,
-          subscriptions: stripeSubscriptions
+          subscriptions: result.data
         });
-      } catch (apiError) {
-        console.error('Error calling Stripe API:', apiError);
-        
-        // If API call throws but we have local data, return that
-        if (localSubscriptions.length > 0) {
-          console.log('Using cached subscription data from database due to API error');
-          return res.status(200).json({
-            success: true,
-            subscriptions: localSubscriptions
-          });
-        }
-        
-        throw apiError; // Re-throw to be caught by the outer catch
       }
-    } else {
-      // For non-Stripe providers like PayPal, return database results
-      return res.status(200).json({
-        success: true,
-        subscriptions: localSubscriptions
-      });
+      
+      throw dbError;
     }
   } catch (error) {
     console.error('Error retrieving customer subscriptions:', error);

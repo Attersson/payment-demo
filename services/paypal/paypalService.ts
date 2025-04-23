@@ -1,5 +1,5 @@
 import checkoutNodeJssdk from '@paypal/checkout-server-sdk';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -123,50 +123,13 @@ export class PayPalService {
    */
   async createSubscription(options: SubscriptionOptions) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsCreateRequest();
-      request.prefer("return=representation");
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      // Need to tell the user they need to install the PayPal Subscriptions SDK
+      console.error('PayPal Subscriptions SDK is not installed. Please run:');
+      console.error('npm install @paypal/subscriptions-sdk');
       
-      const requestBody: any = {
-        plan_id: options.planId,
-        quantity: options.quantity || 1,
-        shipping_amount: options.shippingAmount,
-        application_context: options.applicationContext
-      };
-
-      // If start_time is provided, use it
-      if (options.startTime) {
-        requestBody.start_time = options.startTime;
-      }
-
-      // If trial period is provided, convert to PayPal's format
-      if (options.trialPeriodDays) {
-        const now = new Date();
-        const trialEndDate = new Date(now.getTime() + (options.trialPeriodDays * 24 * 60 * 60 * 1000));
-        requestBody.plan = {
-          billing_cycles: [
-            {
-              sequence: 1,
-              tenure_type: 'TRIAL',
-              total_cycles: 1,
-              pricing_scheme: {
-                fixed_price: {
-                  value: '0',
-                  currency_code: options.shippingAmount?.currency_code || 'USD'
-                }
-              },
-              frequency: {
-                interval_unit: 'DAY',
-                interval_count: options.trialPeriodDays
-              }
-            }
-          ]
-        };
-      }
-      
-      request.requestBody(requestBody);
-
-      const response = await client.execute(request);
-      return response.result;
+      // For now, return a proper error response
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error creating PayPal subscription:', error);
       throw error;
@@ -178,10 +141,8 @@ export class PayPalService {
    */
   async getSubscription(subscriptionId: string) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsGetRequest(subscriptionId);
-      
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error getting PayPal subscription:', error);
       throw error;
@@ -193,41 +154,8 @@ export class PayPalService {
    */
   async updateSubscription(subscriptionId: string, options: UpdateSubscriptionOptions) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsUpdateRequest(subscriptionId);
-      
-      const patchOperations = [];
-      
-      // Update plan ID if provided
-      if (options.planId) {
-        patchOperations.push({
-          op: 'replace',
-          path: '/plan_id',
-          value: options.planId
-        });
-      }
-      
-      // Update quantity if provided
-      if (options.quantity) {
-        patchOperations.push({
-          op: 'replace',
-          path: '/quantity',
-          value: options.quantity.toString()
-        });
-      }
-      
-      // Update shipping amount if provided
-      if (options.shippingAmount) {
-        patchOperations.push({
-          op: 'replace',
-          path: '/shipping_amount',
-          value: options.shippingAmount
-        });
-      }
-      
-      request.requestBody(patchOperations);
-      
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error updating PayPal subscription:', error);
       throw error;
@@ -239,13 +167,8 @@ export class PayPalService {
    */
   async cancelSubscription(subscriptionId: string, reason?: string) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsCancelRequest(subscriptionId);
-      request.requestBody({
-        reason: reason || 'Customer requested cancellation'
-      });
-
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error canceling PayPal subscription:', error);
       throw error;
@@ -257,13 +180,8 @@ export class PayPalService {
    */
   async suspendSubscription(subscriptionId: string, reason?: string) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsSuspendRequest(subscriptionId);
-      request.requestBody({
-        reason: reason || 'Customer requested pause'
-      });
-
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error suspending PayPal subscription:', error);
       throw error;
@@ -275,13 +193,8 @@ export class PayPalService {
    */
   async activateSubscription(subscriptionId: string, reason?: string) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsActivateRequest(subscriptionId);
-      request.requestBody({
-        reason: reason || 'Customer requested resumption'
-      });
-
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error activating PayPal subscription:', error);
       throw error;
@@ -293,16 +206,8 @@ export class PayPalService {
    */
   async captureSubscriptionPayment(subscriptionId: string, note?: string) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsCaptureRequest(subscriptionId);
-      
-      if (note) {
-        request.requestBody({
-          note: note
-        });
-      }
-      
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error capturing PayPal subscription payment:', error);
       throw error;
@@ -314,19 +219,8 @@ export class PayPalService {
    */
   async listSubscriptionTransactions(subscriptionId: string, startTime?: string, endTime?: string) {
     try {
-      const request = new checkoutNodeJssdk.subscriptions.SubscriptionsTransactionsRequest(subscriptionId);
-      
-      // Add start time and end time as query parameters if provided
-      if (startTime) {
-        request.startTime = startTime;
-      }
-      
-      if (endTime) {
-        request.endTime = endTime;
-      }
-      
-      const response = await client.execute(request);
-      return response.result;
+      // The PayPal Checkout SDK doesn't include the subscriptions module
+      throw new Error('PayPal Subscriptions SDK is not installed.');
     } catch (error) {
       console.error('Error listing PayPal subscription transactions:', error);
       throw error;

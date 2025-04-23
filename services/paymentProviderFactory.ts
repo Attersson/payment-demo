@@ -314,7 +314,7 @@ export class PaymentProviderFactory {
     }
   }
 
-  // Process a subscription
+  // Create a subscription
   static async createSubscription(provider: PaymentProvider, subscriptionData: any) {
     try {
       switch (provider) {
@@ -328,14 +328,29 @@ export class PaymentProviderFactory {
             data: stripeSubscription
           };
         case PaymentProvider.PAYPAL:
-          const paypalSubscription = await paypalService.createSubscription(subscriptionData);
-          return {
-            success: true,
-            subscriptionId: paypalSubscription.id,
-            status: paypalSubscription.status,
-            message: 'PayPal subscription created successfully',
-            data: paypalSubscription
-          };
+          try {
+            const paypalSubscription = await paypalService.createSubscription(subscriptionData);
+            return {
+              success: true,
+              subscriptionId: paypalSubscription.id,
+              status: paypalSubscription.status,
+              message: 'PayPal subscription created successfully',
+              data: paypalSubscription
+            };
+          } catch (paypalError) {
+            // Special handling for missing PayPal Subscription SDK
+            if (paypalError instanceof Error && 
+                paypalError.message.includes('PayPal Subscriptions SDK is not installed')) {
+              return {
+                success: false,
+                subscriptionId: '',
+                status: 'failed',
+                message: 'PayPal subscriptions are not supported in this application. Please use Stripe instead.',
+                error: paypalError
+              };
+            }
+            throw paypalError;
+          }
         default:
           throw new Error(`Unsupported payment provider: ${provider}`);
       }
@@ -343,7 +358,9 @@ export class PaymentProviderFactory {
       console.error(`Error creating subscription with ${provider}:`, error);
       return {
         success: false,
-        message: error instanceof Error ? error.message : 'Unknown subscription error'
+        message: error instanceof Error ? error.message : 'Unknown subscription error',
+        subscriptionId: '',
+        status: 'failed'
       };
     }
   }

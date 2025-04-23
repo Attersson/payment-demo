@@ -15,6 +15,7 @@ class PlanSelection {
       
       if (data.success) {
         this.plans = data.plans;
+        console.log('Fetched plans data:', this.plans); // Debug log to see plan data structure
         this.render();
       } else {
         console.error('Failed to fetch plans:', data.message);
@@ -48,6 +49,9 @@ class PlanSelection {
     
     // Create a card for each plan
     this.plans.forEach(plan => {
+      // Debug log to see individual plan data
+      console.log(`Rendering plan ${plan.id}:`, plan);
+      
       const cardCol = document.createElement('div');
       cardCol.className = 'col';
       
@@ -64,7 +68,7 @@ class PlanSelection {
       
       const planName = document.createElement('h5');
       planName.className = 'card-title mb-0';
-      planName.textContent = plan.name;
+      planName.textContent = plan.name || 'Plan';
       
       cardHeader.appendChild(planName);
       card.appendChild(cardHeader);
@@ -76,24 +80,75 @@ class PlanSelection {
       const priceElement = document.createElement('h3');
       priceElement.className = 'text-center mb-3';
       
-      // Format price based on interval
+      // Improved price parsing to handle all possible formats
+      let price = 0;
+      
+      // Try to parse price from various possible formats
+      if (typeof plan.price === 'number') {
+        price = plan.price;
+      } else if (typeof plan.price === 'string') {
+        price = parseFloat(plan.price);
+      } else if (typeof plan.amount === 'number') {
+        price = plan.amount / 100;
+      } else if (typeof plan.amount === 'string') {
+        price = parseFloat(plan.amount) / 100;
+      }
+      
+      // Log the extracted price for debugging
+      console.log(`Plan ${plan.id} price calculation:`, {
+        rawPrice: plan.price,
+        rawAmount: plan.amount,
+        calculatedPrice: price
+      });
+      
       const formattedPrice = new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: plan.currency || 'USD'
-      }).format(plan.amount / 100);
+      }).format(price);
       
-      priceElement.innerHTML = `${formattedPrice}<small class="text-muted">/${plan.interval}</small>`;
+      // Get interval from either direct field or billing_cycle
+      const interval = plan.interval || plan.billing_cycle || 'month';
+      
+      priceElement.innerHTML = `${formattedPrice}<small class="text-muted">/${interval}</small>`;
       cardBody.appendChild(priceElement);
       
-      // Features list
-      if (plan.features && plan.features.length > 0) {
+      // Features list - handle features from API or features array
+      if (plan.features) {
         const featuresList = document.createElement('ul');
         featuresList.className = 'list-group list-group-flush mb-3';
         
-        plan.features.forEach(feature => {
+        // Handle features array or object with array inside
+        const featuresArray = Array.isArray(plan.features) ? plan.features : 
+                              (Array.isArray(plan.features.features) ? plan.features.features : 
+                               (typeof plan.features === 'object' ? [plan.features] : []));
+        
+        featuresArray.forEach(feature => {
           const featureItem = document.createElement('li');
           featureItem.className = 'list-group-item';
-          featureItem.textContent = feature;
+          
+          // Handle different feature formats
+          if (typeof feature === 'string') {
+            featureItem.textContent = feature;
+          } else if (feature && typeof feature === 'object') {
+            // If feature is an object with name property
+            const featureName = feature.name || 'Feature';
+            const featureIncluded = feature.included !== undefined ? feature.included : true;
+            const featureLimit = feature.feature_limit || feature.limit;
+            const featureUnits = feature.units || '';
+            
+            if (featureIncluded) {
+              if (featureLimit) {
+                featureItem.textContent = `${featureName}: ${featureLimit} ${featureUnits}`;
+              } else {
+                featureItem.textContent = featureName;
+              }
+              featureItem.classList.add('text-success');
+            } else {
+              featureItem.textContent = `${featureName} (Not included)`;
+              featureItem.classList.add('text-muted');
+            }
+          }
+          
           featuresList.appendChild(featureItem);
         });
         

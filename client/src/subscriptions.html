@@ -28,6 +28,10 @@
                         <option value="stripe">Stripe</option>
                         <option value="paypal">PayPal</option>
                     </select>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="query-direct" checked>
+                        <label for="query-direct">Query Payment Provider Directly</label>
+                    </div>
                     <button id="lookup-btn" class="btn btn-primary">Lookup Subscriptions</button>
                 </div>
             </div>
@@ -68,19 +72,41 @@
                 let html = '<div class="subscription-list">';
                 
                 subscriptions.forEach(subscription => {
-                    const startDate = new Date(subscription.current_period_start * 1000).toLocaleDateString();
-                    const endDate = new Date(subscription.current_period_end * 1000).toLocaleDateString();
+                    // Handle both timestamp formats (seconds or ISO string)
+                    const startTimestamp = typeof subscription.current_period_start === 'number' 
+                        ? subscription.current_period_start * 1000 
+                        : new Date(subscription.current_period_start).getTime();
+                    
+                    const endTimestamp = typeof subscription.current_period_end === 'number'
+                        ? subscription.current_period_end * 1000
+                        : new Date(subscription.current_period_end).getTime();
+                    
+                    const startDate = new Date(startTimestamp).toLocaleDateString();
+                    const endDate = new Date(endTimestamp).toLocaleDateString();
+                    
+                    // Handle different subscription response formats
+                    const planName = subscription.plan?.name || 
+                                    subscription.plan?.nickname || 
+                                    (subscription.items?.data?.[0]?.plan?.nickname) || 
+                                    'Subscription';
+                    
+                    const planAmount = subscription.plan?.amount || 
+                                      (subscription.items?.data?.[0]?.plan?.amount) || 0;
+                    
+                    const planCurrency = subscription.plan?.currency || 
+                                        (subscription.items?.data?.[0]?.plan?.currency) || 'USD';
                     
                     html += `
                         <div class="subscription-item">
                             <div class="subscription-header">
-                                <h3>${subscription.plan?.name || 'Subscription'}</h3>
+                                <h3>${planName}</h3>
                                 <span class="status status-${subscription.status}">${subscription.status}</span>
                             </div>
                             <div class="subscription-details">
                                 <p><strong>ID:</strong> ${subscription.id}</p>
-                                <p><strong>Price:</strong> ${formatCurrency(subscription.plan?.amount || 0, subscription.plan?.currency)}</p>
+                                <p><strong>Price:</strong> ${formatCurrency(planAmount, planCurrency)}</p>
                                 <p><strong>Billing Period:</strong> ${startDate} to ${endDate}</p>
+                                <p><strong>Data Source:</strong> ${subscription.source || 'Stripe API'}</p>
                             </div>
                         </div>
                     `;
@@ -94,6 +120,7 @@
             lookupBtn.addEventListener('click', function() {
                 const customerId = document.getElementById('customer-id').value.trim();
                 const provider = document.getElementById('provider').value;
+                const queryDirect = document.getElementById('query-direct').checked;
                 
                 if (!customerId) {
                     alert('Please enter a customer ID');
@@ -102,10 +129,19 @@
                 
                 subscriptionsContainer.innerHTML = '<p>Loading subscriptions...</p>';
                 
-                fetch(`/api/customers/${customerId}/subscriptions?provider=${provider}`)
+                // Add direct=true parameter when the checkbox is checked
+                const directParam = queryDirect ? '&direct=true' : '';
+                
+                fetch(`/api/customers/${customerId}/subscriptions?provider=${provider}${directParam}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
+                            // Add source information to subscriptions
+                            if (data.subscriptions && Array.isArray(data.subscriptions)) {
+                                data.subscriptions.forEach(sub => {
+                                    sub.source = queryDirect ? 'Stripe API' : 'Database';
+                                });
+                            }
                             displaySubscriptions(data.subscriptions, subscriptionsContainer);
                         } else {
                             subscriptionsContainer.innerHTML = `<p class="error">${data.message || 'Error retrieving subscriptions'}</p>`;
@@ -125,6 +161,12 @@
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
+                            // Add source information to test subscriptions
+                            if (data.subscriptions && Array.isArray(data.subscriptions)) {
+                                data.subscriptions.forEach(sub => {
+                                    sub.source = 'Test Data';
+                                });
+                            }
                             displaySubscriptions(data.subscriptions, testSubscriptionsContainer);
                         } else {
                             testSubscriptionsContainer.innerHTML = `<p class="error">${data.message || 'Error retrieving test subscriptions'}</p>`;

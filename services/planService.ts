@@ -68,7 +68,24 @@ class PlanService {
          ORDER BY p."order" ASC`
       );
       
-      return result.rows;
+      // Process the results to handle JSON features properly
+      const processedPlans = result.rows.map(plan => {
+        // Handle cases where features might be null or just one null entry when no features exist
+        let features = plan.features || [];
+        
+        // Remove null entries if the features array contains a single null element
+        // (this happens with LEFT JOIN when no features exist)
+        if (features.length === 1 && features[0] === null) {
+          features = [];
+        }
+        
+        return {
+          ...plan,
+          features
+        };
+      });
+      
+      return processedPlans;
     } catch (error) {
       console.error('Error fetching plans:', error);
       throw error;

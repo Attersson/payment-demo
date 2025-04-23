@@ -123,77 +123,51 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // Update refreshSubscriptionUI to also display additional info about the customer
+  // Update subscription UI by displaying customer info and subscriptions
   const refreshSubscriptionUI = async (customerId) => {
     if (!customerId) {
       console.warn('No customer ID provided for refresh');
       return;
     }
     
-    console.log('Refreshing subscription UI with customer ID:', customerId);
+    console.log('Refreshing subscription info with ID:', customerId);
     
     // Save customer ID to localStorage for persistence between page refreshes
     localStorage.setItem('currentCustomerId', customerId);
     currentCustomerId = customerId;
     
-    if (subscriptionFlowInstance) {
-      // Set customer ID in the subscription flow
-      subscriptionFlowInstance.setCustomerId(customerId);
-      try {
-        await subscriptionFlowInstance.initialize();
-      } catch (error) {
-        console.error('Error initializing subscription flow:', error);
+    try {
+      // Get customer info 
+      const customerInfo = await getCustomerInfo(customerId);
+      
+      // Render customer info
+      const customerInfoElement = document.getElementById('customer-info');
+      if (customerInfoElement && customerInfo.success) {
+        customerInfoElement.innerHTML = `
+          <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h3 class="card-title mb-0">Customer Information</h3>
+              <button id="logout-button" class="btn btn-sm btn-outline-danger">Logout</button>
+            </div>
+            <div class="card-body">
+              <p><strong>Name:</strong> ${customerInfo.customer?.name || 'N/A'}</p>
+              <p><strong>Email:</strong> ${customerInfo.customer?.email || 'N/A'}</p>
+              <p><strong>ID:</strong> ${customerInfo.customer?.id || customerId}</p>
+            </div>
+          </div>
+        `;
+        
+        // Add logout button event listener
+        document.getElementById('logout-button').addEventListener('click', logout);
       }
       
-      // Instead of displaying customer info, let's check for subscriptions
-      try {
-        const subscriptionsResponse = await getCustomerSubscriptions(customerId);
-        if (subscriptionsResponse && subscriptionsResponse.success) {
-          // Get customer info to display alongside subscriptions
-          const customerInfo = await getCustomerInfo(customerId);
-          
-          // We'll render subscription info in the customer-info-container
-          const customerInfoElement = document.getElementById('customer-info');
-          if (customerInfoElement) {
-            // Start with the customer info header
-            customerInfoElement.innerHTML = `
-              <div class="card mb-4">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                  <h3 class="card-title mb-0">Customer Information</h3>
-                  <button id="logout-button" class="btn btn-sm btn-outline-danger">Logout</button>
-                </div>
-                <div class="card-body">
-                  <p><strong>Name:</strong> ${customerInfo.customer?.name || 'N/A'}</p>
-                  <p><strong>Email:</strong> ${customerInfo.customer?.email || 'N/A'}</p>
-                  <p><strong>ID:</strong> ${customerInfo.customer?.id || customerId}</p>
-                </div>
-              </div>
-            `;
-            
-            // Add logout button event listener
-            document.getElementById('logout-button').addEventListener('click', logout);
-            
-            // Now, let's handle the subscription manager initialization
-            // This will delegate rendering to the SubscriptionManager component
-            const subscriptionContainer = document.getElementById('subscription-flow-container-subscription');
-            if (subscriptionContainer && subscriptionsResponse.subscriptions && subscriptionsResponse.subscriptions.length > 0) {
-              // Let the subscription manager component handle the rendering
-              console.log('Subscription container found, letting SubscriptionManager render the UI');
-            } else if (subscriptionContainer) {
-              console.log('No subscriptions found for customer');
-              subscriptionContainer.innerHTML = `
-                <div class="alert alert-info">
-                  No active subscriptions found. Select a plan below to subscribe.
-                </div>
-              `;
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error getting customer subscriptions:', error);
+      // Update subscription display if we have the instance
+      if (subscriptionFlowInstance) {
+        subscriptionFlowInstance.setCustomerId(customerId);
+        await subscriptionFlowInstance.initialize();
       }
-    } else {
-      console.warn('Subscription flow not initialized yet');
+    } catch (error) {
+      console.error('Error getting customer info:', error);
     }
   };
   
@@ -788,8 +762,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    // Create an instance of the subscription flow
+    // Create an instance of the subscription flow for viewing existing subscriptions
     subscriptionFlowInstance = new SubscriptionFlow('subscription-flow-container', API_BASE_URL);
+    
+    // Clear the initial loading spinner
+    subscriptionContainer.innerHTML = '';
     
     if (currentCustomerId) {
       // Set the customer ID in the subscription flow
@@ -804,6 +781,9 @@ document.addEventListener('DOMContentLoaded', () => {
           // Customer doesn't exist, clear the ID
           currentCustomerId = null;
           localStorage.removeItem('currentCustomerId');
+          
+          // Show the customer form
+          showCustomerForm();
         } else {
           // Update UI with customer info
           updateCustomerInfo(data.customer);
@@ -812,11 +792,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Error checking customer:', error);
         currentCustomerId = null;
         localStorage.removeItem('currentCustomerId');
+        
+        // Show the customer form on error
+        showCustomerForm();
       }
+      
+      // Initialize to display existing subscriptions
+      await subscriptionFlowInstance.initialize();
     }
-    
-    // Initialize the subscription flow component
-    await subscriptionFlowInstance.initialize();
     
     // If we don't have a customer ID, show the customer creation form
     if (!currentCustomerId) {
@@ -861,12 +844,14 @@ document.addEventListener('DOMContentLoaded', () => {
         currentCustomerId = data.customer.id;
         localStorage.setItem('currentCustomerId', currentCustomerId);
         
-        // Set the customer ID in the subscription flow
-        subscriptionFlowInstance.setCustomerId(currentCustomerId);
-        
         // Hide the form and update UI
         updateCustomerInfo(data.customer);
         document.getElementById('customer-container').classList.add('d-none');
+        
+        // Update subscription UI if available
+        if (subscriptionFlowInstance) {
+          refreshSubscriptionUI(data.customer);
+        }
       } else {
         // Show error
         errorElement.textContent = data.message || 'Failed to create customer. Please try again.';
@@ -962,7 +947,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Update customer info
       updateCustomerInfo(customer);
       
-      // Set the customer ID and reinitialize the subscription flow
+      // Update subscription display if we have the instance
       if (subscriptionFlowInstance) {
         subscriptionFlowInstance.setCustomerId(currentCustomerId);
         try {
