@@ -8,7 +8,7 @@
   <script src="https://js.stripe.com/v3/"></script>
   <style>
     .payment-card {
-      max-width: 500px;
+      /* max-width: 500px; */ /* Removed max-width */
       margin: 0 auto;
       padding: 20px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -175,7 +175,8 @@
           <form id="refund-form">
             <div class="form-group">
               <label for="transaction-id">Transaction ID</label>
-              <input type="text" class="form-control" id="transaction-id" placeholder="pi_1234567890" required>
+              <input type="text" class="form-control" id="transaction-id" placeholder="pi_123... or PayPal ID" required>
+              <small>Copy ID from the list below.</small>
             </div>
             
             <div class="form-group">
@@ -213,6 +214,14 @@
             
             <button type="submit" class="btn btn-danger btn-payment mt-3">Process Refund</button>
           </form>
+          
+          <hr class="my-4">
+          
+          <h5>Recent Transactions (for Refund IDs)</h5>
+          <div id="transactions-list-container" class="mt-3 table-responsive">
+            <p>Loading transactions...</p>
+            <!-- Transactions table will be rendered here by JS -->
+          </div>
         </div>
       </div>
       

@@ -1,6 +1,8 @@
+console.log('app.js started'); // Test log
 import SubscriptionFlow from './components/SubscriptionFlow.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOMContentLoaded event fired'); // Test log
   // API endpoint
   const API_BASE_URL = 'http://localhost:3000/api';
 
@@ -10,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const refundForm = document.getElementById('refund-form');
   const responseContainer = document.getElementById('response-container');
   const responseData = document.getElementById('response-data');
+  const transactionsListContainer = document.getElementById('transactions-list-container');
 
   // Check for redirect status from payment providers
   function checkPaymentStatus() {
@@ -74,10 +77,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     })
     .catch(error => {
-      console.error('Error fetching Stripe key:', error);
+      console.error('CRITICAL ERROR fetching Stripe key:', error); // Enhanced log
       displayResponse({
         error: true,
-        message: 'Failed to initialize payment system. Please try again later.'
+        message: 'CRITICAL: Failed to initialize payment system. Please try again later.' // Enhanced message
       });
     });
   
@@ -751,59 +754,147 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Initialize subscription management flow
-  initializeApp();
+  // Fetch and display recent transactions
+  const fetchAndDisplayTransactions = async () => {
+    if (!transactionsListContainer) return;
 
-  async function initializeApp() {
-    // Check if subscription container exists
-    const subscriptionContainer = document.getElementById('subscription-flow-container');
-    if (!subscriptionContainer) {
-      console.warn('Subscription container not found, skipping subscription flow initialization');
-      return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/payments/list`);
+      const result = await response.json();
+
+      if (result.success && result.data.length > 0) {
+        let tableHTML = `<table class="table table-sm table-striped table-hover">
+                           <thead>
+                             <tr>
+                               <th>ID</th>
+                               <th>Transaction ID</th>
+                               <th>Provider</th>
+                               <th>Amount</th>
+                               <th>Status</th>
+                               <th>Description</th>
+                               <th>Date</th>
+                               <th>Refunded</th>
+                             </tr>
+                           </thead>
+                           <tbody>`;
+
+        result.data.forEach(payment => {
+          // Format date for better readability
+          const date = new Date(payment.created_at).toLocaleString();
+          
+          // Safely format amount: Convert to float and check if it's a valid number
+          const amountNumber = parseFloat(payment.amount);
+          const formattedAmount = !isNaN(amountNumber) ? 
+            `${payment.currency.toUpperCase()} ${amountNumber.toFixed(2)}` : 'Invalid Amount'; // Handle invalid/missing amounts
+          
+          // Format refunded amount
+          const refundedAmountNumber = parseFloat(payment.total_refunded_amount);
+          const formattedRefundedAmount = !isNaN(refundedAmountNumber) && refundedAmountNumber > 0 ?
+            `${payment.currency.toUpperCase()} ${refundedAmountNumber.toFixed(2)}` : '-';
+          
+          // Determine refund status text/badge
+          let refundStatusDisplay = formattedRefundedAmount;
+          if (!isNaN(amountNumber) && !isNaN(refundedAmountNumber) && refundedAmountNumber >= amountNumber && amountNumber > 0) {
+              refundStatusDisplay = `<span class="badge bg-info">Fully Refunded</span> (${formattedRefundedAmount})`;
+          }
+
+          tableHTML += `<tr>
+                          <td>${payment.id}</td>
+                          <td><code>${payment.transaction_id}</code> <button class="btn btn-sm btn-outline-secondary copy-btn" data-clipboard-text="${payment.transaction_id}">Copy</button></td>
+                          <td>${payment.provider}</td>
+                          <td>${formattedAmount}</td>
+                          <td><span class="badge bg-${payment.status === 'succeeded' ? 'success' : 'warning'}">${payment.status}</span></td>
+                          <td>${payment.description || 'N/A'}</td>
+                          <td>${date}</td>
+                          <td>${refundStatusDisplay}</td>
+                        </tr>`;
+        });
+
+        tableHTML += `</tbody></table>`;
+        transactionsListContainer.innerHTML = tableHTML;
+
+        // Add event listeners for copy buttons
+        transactionsListContainer.querySelectorAll('.copy-btn').forEach(button => {
+          button.addEventListener('click', () => {
+            navigator.clipboard.writeText(button.dataset.clipboardText)
+              .then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => button.textContent = originalText, 1500);
+              })
+              .catch(err => console.error('Failed to copy:', err));
+          });
+        });
+
+      } else if (result.success) {
+        transactionsListContainer.innerHTML = '<p>No transactions found.</p>';
+      } else {
+        transactionsListContainer.innerHTML = `<p class="text-danger">Error loading transactions: ${result.message || 'Unknown error'}</p>`;
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      transactionsListContainer.innerHTML = '<p class="text-danger">Failed to load transactions.</p>';
     }
-    
-    // Create an instance of the subscription flow for viewing existing subscriptions
-    subscriptionFlowInstance = new SubscriptionFlow('subscription-flow-container', API_BASE_URL);
-    
-    // Clear the initial loading spinner
-    subscriptionContainer.innerHTML = '';
-    
-    if (currentCustomerId) {
-      // Set the customer ID in the subscription flow
-      subscriptionFlowInstance.setCustomerId(currentCustomerId);
+  };
+
+  // Initialize the app
+  async function initializeApp() {
+    console.log('initializeApp function started'); // Test log inside initializeApp
+    console.log('Initializing app...');
+    await fetchAndDisplayTransactions(); // Fetch transactions on load
+
+    // Initialize subscription flow
+    if (document.getElementById('subscription-flow-container')) {
+      // Check if subscription container exists
+      const subscriptionContainer = document.getElementById('subscription-flow-container');
+      if (!subscriptionContainer) {
+        console.warn('Subscription container not found, skipping subscription flow initialization');
+        return;
+      }
       
-      // Check if customer exists in the database
-      try {
-        const response = await fetch(`${API_BASE_URL}/customers/${currentCustomerId}`);
-        const data = await response.json();
+      // Create an instance of the subscription flow for viewing existing subscriptions
+      subscriptionFlowInstance = new SubscriptionFlow('subscription-flow-container', API_BASE_URL);
+      
+      // Clear the initial loading spinner
+      subscriptionContainer.innerHTML = '';
+      
+      if (currentCustomerId) {
+        // Set the customer ID in the subscription flow
+        subscriptionFlowInstance.setCustomerId(currentCustomerId);
         
-        if (!data.success) {
-          // Customer doesn't exist, clear the ID
+        // Check if customer exists in the database
+        try {
+          const response = await fetch(`${API_BASE_URL}/customers/${currentCustomerId}`);
+          const data = await response.json();
+          
+          if (!data.success) {
+            // Customer doesn't exist, clear the ID
+            currentCustomerId = null;
+            localStorage.removeItem('currentCustomerId');
+            
+            // Show the customer form
+            showCustomerForm();
+          } else {
+            // Update UI with customer info
+            updateCustomerInfo(data.customer);
+          }
+        } catch (error) {
+          console.error('Error checking customer:', error);
           currentCustomerId = null;
           localStorage.removeItem('currentCustomerId');
           
-          // Show the customer form
+          // Show the customer form on error
           showCustomerForm();
-        } else {
-          // Update UI with customer info
-          updateCustomerInfo(data.customer);
         }
-      } catch (error) {
-        console.error('Error checking customer:', error);
-        currentCustomerId = null;
-        localStorage.removeItem('currentCustomerId');
         
-        // Show the customer form on error
-        showCustomerForm();
+        // Initialize to display existing subscriptions
+        await subscriptionFlowInstance.initialize();
       }
       
-      // Initialize to display existing subscriptions
-      await subscriptionFlowInstance.initialize();
-    }
-    
-    // If we don't have a customer ID, show the customer creation form
-    if (!currentCustomerId) {
-      showCustomerForm();
+      // If we don't have a customer ID, show the customer creation form
+      if (!currentCustomerId) {
+        showCustomerForm();
+      }
     }
   }
   
@@ -964,4 +1055,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   };
+
+  // Add log before calling initializeApp
+  console.log('About to call initializeApp...'); 
+  initializeApp();
 }); 
