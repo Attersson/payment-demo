@@ -3,6 +3,7 @@ import { PaymentProvider, PaymentProviderFactory } from '../../services/paymentP
 import stripeService from '../../services/stripe/stripeService';
 import dotenv from 'dotenv';
 import webhookService from '../../services/webhookService';
+import pool from '../../config/database';
 
 dotenv.config();
 
@@ -32,7 +33,7 @@ router.get('/stripe-key', (req: Request, res: Response) => {
  */
 router.post('/create', async (req: Request, res: Response) => {
   try {
-    const { amount, currency, description, provider = PaymentProvider.STRIPE } = req.body;
+    const { amount, currency, description, provider = PaymentProvider.STRIPE, customerId } = req.body;
 
     if (!amount || !currency) {
       return res.status(400).json({
@@ -60,6 +61,28 @@ router.post('/create', async (req: Request, res: Response) => {
 
     if (!result.success) {
       return res.status(400).json(result);
+    }
+
+    // Log the successful payment to the database
+    try {
+      await pool.query(
+        `INSERT INTO payments
+         (transaction_id, provider, customer_id, amount, currency, status, description, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          result.transactionId,
+          provider,
+          customerId || null,
+          amountValue,
+          currency,
+          'succeeded',
+          description || `One-time payment`,
+          JSON.stringify(result.data)
+        ]
+      );
+      console.log(`Logged payment ${result.transactionId} to database.`);
+    } catch (dbError) {
+      console.error(`Error logging payment ${result.transactionId} to database:`, dbError);
     }
 
     return res.status(200).json(result);

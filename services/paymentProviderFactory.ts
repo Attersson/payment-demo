@@ -566,7 +566,7 @@ export class PaymentProviderFactory {
     try {
       switch (provider) {
         case PaymentProvider.STRIPE:
-          const stripeRefund = await stripeService.createRefund(refundData);
+          const stripeRefund = await stripeService.createRefund(refundData.paymentIntentId, refundData.amount);
           return {
             success: true,
             refundId: stripeRefund.id,
