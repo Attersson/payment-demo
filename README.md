@@ -11,7 +11,9 @@ This project serves as a hands-on learning environment for building robust payme
 - Stripe and PayPal integration
 - Subscription management with UI components
 - Transaction processing
-- Refund handling
+- Refund handling (API)
+- Refund Processing UI
+- Transaction History Display
 - Secure payment flow
 - Comprehensive error handling
 - Webhook handling for payment events
@@ -68,6 +70,44 @@ This project serves as a hands-on learning environment for building robust payme
    npm run dev
    ```
 8. Access the demo UI at `http://localhost:3000`
+
+## UI Overview
+
+The main user interface (`client/src/index.html`) provides several tabs for interacting with the payment system:
+
+- **One-time Payment:** Initiate a single payment using Stripe or PayPal.
+- **Subscription:** Create a new subscription using Stripe or PayPal (requires customer email).
+- **Refund:** Process refunds for existing transactions.
+  - Includes a **Recent Transactions** list that displays the latest payments recorded in the database.
+  - Use the transaction ID from this list (or from the `payments` table) when processing a refund.
+  - The list indicates the refunded amount for each transaction and highlights fully refunded ones.
+
+## API Endpoints
+
+Key API endpoints provided by the Express server (`src/server.ts`):
+
+- **Payments:**
+  - `GET /api/payments/stripe-key`: Get the Stripe publishable key.
+  - `POST /api/payments/create`: Create a payment intent (Stripe) or order (PayPal).
+  - `POST /api/payments/refund`: Process a refund for a given transaction ID.
+  - `GET /api/payments/list`: List recent payment transactions from the database.
+  - `POST /api/payments/webhooks/stripe`: Handle incoming Stripe webhooks.
+  - `POST /api/payments/webhooks/paypal`: Handle incoming PayPal webhooks.
+- **Customers:**
+  - `POST /api/customers/create`: Create a customer record.
+  - `GET /api/customers/:customerId`: Get customer details.
+  - `POST /api/customers/:customerId/payment-methods`: Attach a payment method.
+  - `POST /api/customers/:customerId/default-payment-method`: Set the default payment method.
+  - `GET /api/customers/:customerId/subscriptions`: List customer subscriptions.
+- **Subscriptions:**
+  - `POST /api/subscriptions/create`: Create a new subscription.
+  - `GET /api/subscriptions/:subscriptionId`: Get subscription details.
+  - `POST /api/subscriptions/update`: Update a subscription.
+  - `POST /api/subscriptions/cancel`: Cancel a subscription.
+  - `POST /api/subscriptions/pause`: Pause a subscription.
+  - `POST /api/subscriptions/resume`: Resume a subscription.
+- **Prices:**
+  - `GET /api/prices/lookup`: Look up a Stripe price ID by its lookup key.
 
 ### Detailed Setup Instructions
 
